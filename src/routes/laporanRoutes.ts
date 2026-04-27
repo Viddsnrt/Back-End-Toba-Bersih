@@ -14,12 +14,13 @@ router.get('/', getLaporan);
 // Middleware upload.single('photo') tetap kita pasang bersiap-siap saat warga upload foto dari kamera HP
 router.post('/create', upload.single('photo'), createLaporan);
 
+router.get('/user/:userId', getLaporanByUser);
+
 // 🔥 PERBAIKAN: Hapus '/status' agar URL-nya cocok dengan panggilan dari ManageLaporan.tsx
 router.patch('/:id', updateStatus); 
 
 // Hapus laporan
 router.delete('/:id', deleteLaporan);
 
-router.get('/user/:userId', getLaporanByUser);
 
 export default router;

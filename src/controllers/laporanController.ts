@@ -33,16 +33,19 @@ export const getLaporan = async (req: Request, res: Response): Promise<any> => {
 };
 
 // POST /api/laporan/create (Untuk Warga Kirim Laporan dari Mobile)
+// POST /api/laporan/create
 export const createLaporan = async (req: Request, res: Response): Promise<any> => {
   const { userId, description, deskripsi, latitude, longitude, jenisSampah, photoUrl: bodyPhotoUrl } = req.body;
-  const file = req.file; 
+  const file = req.file;
 
   try {
     if (!userId) {
-      return res.status(400).json({ success: false, message: "ID User tidak ditemukan. Pastikan Anda sudah login." });
+      return res.status(400).json({ success: false, message: "ID User tidak ditemukan." });
     }
 
-    // 🔥 FITUR BARU: GEOFENCING (PENGHALANG LAPORAN PALSU/DI LUAR AREA)
+    // ✅ PERBAIKAN: Simpan locationId dari geofence
+    let matchedLocationId: bigint | null = null;
+
     if (latitude && longitude) {
       const activeLocations = await prisma.location.findMany({ where: { isActive: true } });
       let isInsideCoverage = false;
@@ -50,18 +53,17 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
       for (const loc of activeLocations) {
         const locLat = Number(loc.latitude);
         const locLon = Number(loc.longitude);
-
         const jarakKm = hitungJarakGPS(
           parseFloat(latitude), parseFloat(longitude),
           locLat, locLon
         );
-        
         const jarakMeter = Math.round(jarakKm * 1000);
-        const batasRadiusMeter = loc.radius || 5000; 
+        const batasRadiusMeter = loc.radius || 5000;
 
         if (jarakMeter <= batasRadiusMeter) {
           isInsideCoverage = true;
-          break; 
+          matchedLocationId = loc.id; // ✅ Simpan ID wilayah yang cocok
+          break;
         }
       }
 
@@ -72,50 +74,48 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
         });
       }
     }
-    // 🔥 AKHIR FITUR GEOFENCING
 
-    // Proses upload gambar ke Supabase
+    // Upload foto ke Supabase (tidak berubah)
     let finalPhotoUrl = bodyPhotoUrl || null;
     if (file) {
       const fileName = `${Date.now()}-${file.originalname.replace(/\s/g, '_')}`;
       const { data, error } = await supabase.storage
         .from('Foto-sampah')
         .upload(fileName, file.buffer, { contentType: file.mimetype });
-
       if (error) throw error;
-
       const { data: publicUrlData } = supabase.storage
         .from('Foto-sampah')
         .getPublicUrl(fileName);
-
       finalPhotoUrl = publicUrlData.publicUrl;
     }
 
     let mappedJenisSampah = 'CAMPURAN';
     if (jenisSampah === 'Tumpukan Sampah') mappedJenisSampah = 'CAMPURAN';
-    if (jenisSampah === 'Fasilitas Rusak') mappedJenisSampah = 'ANORGANIK'; 
+    if (jenisSampah === 'Fasilitas Rusak') mappedJenisSampah = 'ANORGANIK';
     if (jenisSampah === 'Sampah Danau') mappedJenisSampah = 'CAMPURAN';
     if (jenisSampah === 'Lainnya') mappedJenisSampah = 'CAMPURAN';
 
     const dataBaru = await prisma.report.create({
       data: {
         userId: BigInt(userId),
-        description: description || deskripsi || '', 
+        description: description || deskripsi || '',
         latitude: parseFloat(latitude) || 0,
         longitude: parseFloat(longitude) || 0,
         jenisSampah: mappedJenisSampah,
         status: 'PENDING',
         photoUrl: finalPhotoUrl,
+        locationId: matchedLocationId, // ✅ Sekarang tersimpan ke DB
       },
     });
 
     return res.status(201).json({
       success: true,
-      message: 'Laporan berhasil dikirim ke Dinas Lingkungan Hidup!',
+      message: 'Laporan berhasil dikirim!',
       data: {
         ...dataBaru,
-        id: dataBaru.id.toString(), 
-        userId: dataBaru.userId.toString()
+        id: dataBaru.id.toString(),
+        userId: dataBaru.userId.toString(),
+        locationId: dataBaru.locationId?.toString() || null,
       }
     });
   } catch (error: any) {

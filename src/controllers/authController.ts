@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import * as bcrypt from 'bcrypt'; // Pastikan bcrypt di-import
+import * as bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 
 const prisma = new PrismaClient();
 
@@ -8,10 +9,8 @@ export const login = async (req: Request, res: Response): Promise<any> => {
   const { email, password } = req.body;
 
   try {
-    // 🔍 PELACAK: Cetak ke terminal siapa yang mencoba login
     console.log(`\n➡️ Seseorang mencoba login dengan email: ${email}`);
 
-    // Cari user di database
     const user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
@@ -19,14 +18,11 @@ export const login = async (req: Request, res: Response): Promise<any> => {
       return res.status(401).json({ success: false, message: 'Email tidak terdaftar' });
     }
 
-    // Cek password (Bisa teks biasa dari seeding, atau bcrypt dari register asli)
     let isPasswordValid = false;
 
-    // Jika password di database adalah hasil enkripsi bcrypt (biasanya diawali $2b$ atau $2a$)
     if (user.passwordHash.startsWith('$2b$') || user.passwordHash.startsWith('$2a$')) {
       isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     } else {
-      // Jika password di database adalah teks biasa (contoh: "budi123")
       isPasswordValid = (user.passwordHash === password);
     }
 
@@ -37,19 +33,27 @@ export const login = async (req: Request, res: Response): Promise<any> => {
 
     console.log(`✅ BERHASIL: ${user.fullName} login sebagai ${user.role}`);
 
-    // Tentukan role untuk dikirim ke Flutter / Next.js
-    let flutterRole = 'masyarakat'; // Default untuk WARGA
-    if (user.role === 'OPERATOR') flutterRole = 'supir';
-    if (user.role === 'ADMIN') flutterRole = 'admin';
+    // ✅ Generate JWT Token dengan role
+    const token = jwt.sign(
+      { 
+        id: user.id.toString(), 
+        email: user.email, 
+        role: user.role,
+        fullName: user.fullName 
+      },
+      process.env.JWT_SECRET || 'rahasia-default',
+      { expiresIn: '24h' }
+    );
 
     return res.json({ 
       success: true, 
-      role: flutterRole, 
-      data: { 
-        id: user.id.toString(), // Wajib toString agar tidak error BigInt
+      token, // ✅ Return JWT token
+      user: {
+        id: user.id.toString(),
         name: user.fullName,
-        email: user.email
-      } 
+        email: user.email,
+        role: user.role
+      }
     });
 
   } catch (error: any) {

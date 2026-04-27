@@ -6,71 +6,71 @@ generator client {
 datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
-  directUrl  = env("DIRECT_URL") // 🔥 TAMBAHKAN BARIS INI
+  directUrl  = env("DIRECT_URL")
   extensions = [postgis(schema: "extensions"), uuid_ossp(map: "uuid-ossp", schema: "extensions")]
 }
 
 model User {
-  id              BigInt         @id @default(autoincrement())
-  username        String?        @unique
-  email           String         @unique
-  passwordHash    String         @map("password_hash")
-  fullName        String         @map("full_name")
-  phoneNumber     String?        @map("phone_number")
-  role            Role           @default(WARGA)
-  createdAt       DateTime       @default(now()) @map("created_at")
-  updatedAt       DateTime       @default(now()) @map("updated_at")
-  isActive        Boolean        @default(true)
-  notifications   Notification[]
-  posts           Post[]
-  reports         Report[]
-  assigned        Task[]         @relation("TaskAssigner")
-  tasks           Task[]         @relation("TaskDriver")
-  trucks          Truck[]
-  volumes         Volume[]
+  id            BigInt         @id @default(autoincrement())
+  username      String?        @unique
+  email         String         @unique
+  passwordHash  String         @map("password_hash")
+  fullName      String         @map("full_name")
+  phoneNumber   String?        @map("phone_number")
+  role          Role           @default(WARGA)
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @default(now()) @map("updated_at")
+  isActive      Boolean        @default(true)
+  notifications Notification[]
+  posts         Post[]
+  reports       Report[]
+  assigned      Task[]         @relation("TaskAssigner")
+  tasks         Task[]         @relation("TaskDriver")
+  trucks        Truck[]
+  volumes       Volume[]
 
   @@map("users")
 }
 
 model Location {
-  id              BigInt         @id @default(autoincrement())
-  name            String
-  locationType    String         @map("location_type")
-  isActive        Boolean        @default(true) @map("is_active")
-  code            String?        @unique
-  population      Int?
-  latitude        Decimal        @db.Decimal(10, 8)
-  radius          Int?
-  longitude       Decimal        @db.Decimal(11, 8)
-  geom            Unsupported("geography")?
-  address         String?
-  capacityVolume  Int?           @map("capacity_volume")
-  createdAt       DateTime       @default(now()) @map("created_at")
-  updatedAt       DateTime       @default(now()) @map("updated_at")
-  reports         Report[]
-  routesStart     Route[]        @relation("StartLocation")
+  id             BigInt                    @id @default(autoincrement())
+  name           String
+  locationType   String                    @map("location_type")
+  isActive       Boolean                   @default(true) @map("is_active")
+  code           String?                   @unique
+  population     Int?
+  latitude       Decimal                   @db.Decimal(10, 8)
+  longitude      Decimal                   @db.Decimal(11, 8)
+  geom           Unsupported("geography")?
+  address        String?
+  capacityVolume Int?                      @map("capacity_volume")
+  createdAt      DateTime                  @default(now()) @map("created_at")
+  updatedAt      DateTime                  @default(now()) @map("updated_at")
+  radius         Int?
+  reports        Report[]
+  routesStart    Route[]                   @relation("StartLocation")
 
   @@map("locations")
 }
 
 model Report {
-  id            BigInt         @id @default(autoincrement())
-  userId        BigInt         @map("user_id")
-  jenisSampah   WasteType?     @map("jenis_sampah")
-  locationId    BigInt?        @map("location_id")
-  latitude      Decimal        @db.Decimal(10, 8)
-  longitude     Decimal        @db.Decimal(11, 8)
+  id            BigInt                    @id @default(autoincrement())
+  userId        BigInt                    @map("user_id")
+  jenisSampah   WasteType?                @map("jenis_sampah")
+  locationId    BigInt?                   @map("location_id")
+  latitude      Decimal                   @db.Decimal(10, 8)
+  longitude     Decimal                   @db.Decimal(11, 8)
   geom          Unsupported("geography")?
-  photoUrl      String?        @map("photo_url")
+  photoUrl      String?                   @map("photo_url")
   description   String?
-  latCompleted  Decimal?       @map("lat_completed") @db.Decimal(10, 8)
-  longCompleted Decimal?       @map("long_completed") @db.Decimal(11, 8)
-  photoAfterUrl String?        @map("photo_after_url")
-  status        ReportStatus   @default(PENDING)
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @default(now()) @map("updated_at")
-  location      Location?      @relation(fields: [locationId], references: [id])
-  user          User           @relation(fields: [userId], references: [id])
+  latCompleted  Decimal?                  @map("lat_completed") @db.Decimal(10, 8)
+  longCompleted Decimal?                  @map("long_completed") @db.Decimal(11, 8)
+  photoAfterUrl String?                   @map("photo_after_url")
+  status        ReportStatus              @default(PENDING)
+  createdAt     DateTime                  @default(now()) @map("created_at")
+  updatedAt     DateTime                  @default(now()) @map("updated_at")
+  location      Location?                 @relation(fields: [locationId], references: [id])
+  user          User                      @relation(fields: [userId], references: [id])
   task          Task?
   volumes       Volume[]
 
@@ -184,35 +184,31 @@ model Notification {
 }
 
 model Task {
-  id          BigInt     @id @default(autoincrement())
-  taskNumber  String     @unique @map("task_number")
+  id          BigInt      @id @default(autoincrement())
+  taskNumber  String      @unique @map("task_number")
   type        String
-  status      TaskStatus @default(DITUGASKAN)
-  driverId    BigInt     @map("driver_id")
-  truckId     BigInt?    @map("truck_id")
-  
-  // 🔥 PERBAIKAN: Dibuat opsional (?) karena Admin tidak selalu mengirim data ini saat buat jadwal
-  assignerId  BigInt?    @map("assigner_id") 
-  reportId    BigInt?    @unique @map("report_id")
+  status      TaskStatus  @default(DITUGASKAN)
+  driverId    BigInt      @map("driver_id")
+  truckId     BigInt?     @map("truck_id")
+  assignerId  BigInt?     @map("assigner_id")
+  reportId    BigInt?     @unique @map("report_id")
   location    String
-  latitude    Decimal?   @db.Decimal(10, 8) 
-  longitude   Decimal?   @db.Decimal(11, 8) 
-  district    String?    
+  latitude    Decimal?    @db.Decimal(10, 8)
+  longitude   Decimal?    @db.Decimal(11, 8)
+  district    String?
   description String?
-  notes       String?    @db.Text // 🔥 TAMBAHAN: Untuk menyimpan instruksi khusus dari Admin
-  
-  scheduledAt DateTime   @map("scheduled_at")
-  startedAt   DateTime?  @map("started_at")
-  completedAt DateTime?  @map("completed_at")
-  volumeKg    Decimal?   @map("volume_kg") @db.Decimal(10, 2)
-  createdAt   DateTime   @default(now()) @map("created_at")
-  updatedAt   DateTime   @updatedAt @map("updated_at")
-  
+  scheduledAt DateTime    @map("scheduled_at")
+  startedAt   DateTime?   @map("started_at")
+  completedAt DateTime?   @map("completed_at")
+  volumeKg    Decimal?    @map("volume_kg") @db.Decimal(10, 2)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+  notes       String?
   photos      TaskPhoto[]
-  assigner    User?      @relation("TaskAssigner", fields: [assignerId], references: [id]) // Dibuat opsional
-  driver      User       @relation("TaskDriver", fields: [driverId], references: [id])
-  report      Report?    @relation(fields: [reportId], references: [id])
-  truck       Truck?     @relation(fields: [truckId], references: [id])
+  assigner    User?       @relation("TaskAssigner", fields: [assignerId], references: [id])
+  driver      User        @relation("TaskDriver", fields: [driverId], references: [id])
+  report      Report?     @relation(fields: [reportId], references: [id])
+  truck       Truck?      @relation(fields: [truckId], references: [id])
 
   @@map("tasks")
 }
