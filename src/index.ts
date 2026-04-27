@@ -13,6 +13,7 @@ import uploadRoutes from './routes/uploadRoutes.js';
 import driverRoutes from './routes/driverRoutes.js';
 import penugasanRoutes from './routes/penugasanRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
+import postsRoutes from './routes/postRoutes.js';
 
 dotenv.config();
 const app = express();
@@ -45,6 +46,7 @@ app.use('/api/driver', driverRoutes);
 app.use('/api/laporan', laporanRoutes);
 app.use('/api/penugasan', penugasanRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/posts', postsRoutes);
 
 (BigInt.prototype as any).toJSON = function () { return this.toString(); };
 
