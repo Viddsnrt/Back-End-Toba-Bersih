@@ -18,8 +18,9 @@ model User {
   fullName      String         @map("full_name")
   phoneNumber   String?        @map("phone_number")
   role          Role           @default(WARGA)
+  region        String?
   createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @default(now()) @map("updated_at")
+  updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at")
   isActive      Boolean        @default(true)
   notifications Notification[]
   posts         Post[]
