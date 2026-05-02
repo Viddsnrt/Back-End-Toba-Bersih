@@ -13,6 +13,7 @@ import uploadRoutes from './routes/uploadRoutes.js';
 import driverRoutes from './routes/driverRoutes.js';
 import penugasanRoutes from './routes/penugasanRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
+import galleryRoutes from './routes/galleryRoutes.js';
 import postsRoutes from './routes/postRoutes.js';
 
 dotenv.config();
@@ -41,6 +42,7 @@ app.use(cors());
 app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/galleries', galleryRoutes);
 app.use('/api/upload', uploadRoutes); 
 app.use('/api/driver', driverRoutes);
 app.use('/api/laporan', laporanRoutes);
