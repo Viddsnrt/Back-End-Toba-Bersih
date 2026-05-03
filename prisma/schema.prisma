@@ -18,8 +18,9 @@ model User {
   fullName      String         @map("full_name")
   phoneNumber   String?        @map("phone_number")
   role          Role           @default(WARGA)
+  region        String?
   createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @default(now()) @map("updated_at")
+  updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at")
   isActive      Boolean        @default(true)
   notifications Notification[]
   posts         Post[]
@@ -55,7 +56,7 @@ model Location {
 
 model Report {
   id            BigInt                    @id @default(autoincrement())
-  userId        BigInt                    @map("user_id")
+  userId        BigInt?                   @map("user_id")
   jenisSampah   WasteType?                @map("jenis_sampah")
   locationId    BigInt?                   @map("location_id")
   latitude      Decimal                   @db.Decimal(10, 8)
@@ -70,7 +71,7 @@ model Report {
   createdAt     DateTime                  @default(now()) @map("created_at")
   updatedAt     DateTime                  @default(now()) @map("updated_at")
   location      Location?                 @relation(fields: [locationId], references: [id])
-  user          User                      @relation(fields: [userId], references: [id])
+  user          User?                     @relation(fields: [userId], references: [id])
   task          Task?
   volumes       Volume[]
 
@@ -88,12 +89,45 @@ model Truck {
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @default(now()) @map("updated_at")
   status          TruckStatus       @default(AVAILABLE)
+  brand           String?
+  truckType       String?           @map("truck_type")
+  unitCode        String?           @map("unit_code")
   locationHistory LocationHistory[]
+  routesTemplate  RouteTemplate[]
   routes          Route[]
   tasks           Task[]
   operator        User?             @relation(fields: [operatorId], references: [id])
 
   @@map("trucks")
+}
+
+model RouteTemplate {
+  id        BigInt          @id @default(autoincrement())
+  name      String
+  truckId   BigInt
+  dayOfWeek String
+  isActive  Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  truck     Truck           @relation(fields: [truckId], references: [id], onDelete: Cascade)
+  waypoints RouteWaypoint[]
+
+  @@unique([truckId, dayOfWeek])
+  @@map("route_templates")
+}
+
+model RouteWaypoint {
+  id        BigInt        @id @default(autoincrement())
+  routeId   BigInt
+  order     Int
+  name      String
+  latitude  Float
+  longitude Float
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  route     RouteTemplate @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@map("route_waypoints")
 }
 
 model LocationHistory {
@@ -109,7 +143,7 @@ model LocationHistory {
 
 model Route {
   id              BigInt    @id @default(autoincrement())
-  truckId         BigInt    @map("truck_id")
+  truckId         BigInt    @map("truck_id")  
   date            DateTime  @db.Date
   startLocationId BigInt?   @map("start_location_id")
   status          String    @default("PLANNED") @map("route_status")
@@ -158,17 +192,6 @@ model Document {
   createdAt     DateTime @default(now()) @map("created_at")
 
   @@map("documents")
-}
-
-model Gallery {
-  id          Int      @id @default(autoincrement())
-  title       String?
-  imageUrl    String   @map("image_url")
-  isSlider    Boolean  @default(false) @map("is_slider")
-  createdAt   DateTime @default(now()) @map("created_at")
-  description String?
-
-  @@map("galleries")
 }
 
 model Notification {
@@ -224,6 +247,25 @@ model TaskPhoto {
   @@map("task_photos")
 }
 
+model gallery_albums {
+  id             Int              @id(map: "GalleryAlbum_pkey") @default(autoincrement())
+  title          String
+  description    String?
+  cover_url      String?
+  created_at     DateTime         @default(now())
+  updated_at     DateTime
+  gallery_photos gallery_photos[]
+}
+
+model gallery_photos {
+  id             Int            @id(map: "GalleryPhoto_pkey") @default(autoincrement())
+  album_id       Int
+  image_url      String
+  caption        String?
+  created_at     DateTime       @default(now())
+  gallery_albums gallery_albums @relation(fields: [album_id], references: [id], onDelete: Cascade, map: "GalleryPhoto_album_id_fkey")
+}
+
 enum Role {
   WARGA
   OPERATOR
@@ -246,6 +288,7 @@ enum Category {
   BERITA
   PENGUMUMAN
   PROFIL_DLH
+  EDUKASI
 }
 
 enum WasteType {

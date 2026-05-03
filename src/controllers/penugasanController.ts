@@ -33,39 +33,67 @@ export const createAduan = async (req: Request, res: Response): Promise<any> => 
   try {
     const { reportId, driverId, truckId, scheduledAt, location, district, description, notes } = req.body;
 
+    // 1. VALIDASI: Cek apakah laporan ini sudah punya penugasan
+    if (reportId) {
+      const existingTask = await prisma.task.findFirst({
+        where: { reportId: BigInt(reportId) }
+      });
+
+      if (existingTask) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Aduan ini sudah pernah dibuatkan penugasan sebelumnya." 
+        });
+      }
+    }
+
     const dateStr = new Date().toISOString().slice(0,10).replace(/-/g, '');
     const taskNumber = `ADUAN-${dateStr}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const newTask = await prisma.task.create({
-      data: {
-        taskNumber,
-        type: 'ADUAN',
-        location,
-        district: district || null,
-        description: description || null,
-        notes: notes || null,
-        scheduledAt: new Date(scheduledAt),
-        driverId: BigInt(driverId),
-        truckId: truckId ? BigInt(truckId) : null,
-        reportId: reportId ? BigInt(reportId) : null,
+    // 2. TRANSAKSI: Gunakan $transaction agar Create Task & Update Report sukses bersamaan
+    const result = await prisma.$transaction(async (tx) => {
+      const newTask = await tx.task.create({
+        data: {
+          taskNumber,
+          type: 'ADUAN',
+          location,
+          district: district || null,
+          description: description || null,
+          notes: notes || null,
+          scheduledAt: new Date(scheduledAt),
+          driverId: BigInt(driverId),
+          truckId: truckId ? BigInt(truckId) : null,
+          reportId: reportId ? BigInt(reportId) : null,
+        }
+      });
+
+      if (reportId) {
+        await tx.report.update({
+          where: { id: BigInt(reportId) },
+          data: { status: 'DITINDAKLANJUTI' }
+        });
       }
+
+      return newTask;
     });
 
-    // Otomatis ubah status laporan warga menjadi DITINDAKLANJUTI (sesuai enum kamu)
-    if (reportId) {
-      await prisma.report.update({
-        where: { id: BigInt(reportId) },
-        data: { status: 'DITINDAKLANJUTI' }
-      });
-    }
+    return res.status(201).json({ 
+      success: true, 
+      data: { ...result, id: result.id.toString() } 
+    });
 
-    return res.status(201).json({ success: true, data: { ...newTask, id: newTask.id.toString() } });
   } catch (error: any) {
     console.error("ERROR CREATE ADUAN:", error);
+    // Cek jika error datang dari Prisma unique constraint (P2002)
+    if (error.code === 'P2002') {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Gagal: Nomor tugas atau ID laporan duplikat." 
+      });
+    }
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-
 // Ambil Semua Data Penugasan
 export const getSemuaPenugasan = async (req: Request, res: Response): Promise<any> => {
   try {

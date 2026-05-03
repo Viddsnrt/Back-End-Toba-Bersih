@@ -1,8 +1,6 @@
 import type { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../config/db.js';
 import * as bcrypt from 'bcrypt';
-
-const prisma = new PrismaClient();
 
 // ==========================================
 // BAGIAN 1: MANAJEMEN SUPIR (OPERATOR)
@@ -27,18 +25,18 @@ export const addOperator = async (req: Request, res: Response): Promise<any> => 
         fullName,
         phoneNumber,
         role: 'OPERATOR',
-        isActive: true 
+        isActive: true
       }
     });
 
     const { passwordHash: _, ...result } = supirBaru;
 
-    res.status(201).json({ 
+    res.status(201).json({
       success: true,
-      message: "Akun Supir (Operator) berhasil dibuat oleh Admin", 
+      message: "Akun Supir (Operator) berhasil dibuat oleh Admin",
       data: {
         ...result,
-        id: result.id.toString() 
+        id: result.id.toString()
       }
     });
   } catch (error: any) {
@@ -49,8 +47,8 @@ export const addOperator = async (req: Request, res: Response): Promise<any> => 
 export const getSemuaSupir = async (req: Request, res: Response): Promise<any> => {
   try {
     const supirList = await prisma.user.findMany({
-      where: { role: 'OPERATOR' }, 
-      select: { id: true, fullName: true, email: true, phoneNumber: true, isActive: true } 
+      where: { role: 'OPERATOR' },
+      select: { id: true, fullName: true, email: true, phoneNumber: true, isActive: true }
     });
 
     const formattedSupir = supirList.map(supir => ({
@@ -64,7 +62,6 @@ export const getSemuaSupir = async (req: Request, res: Response): Promise<any> =
   }
 };
 
-// 🔥 PERBAIKAN: Fungsi Update Supir & Ubah Password
 export const updateOperator = async (req: Request, res: Response): Promise<any> => {
   const { id } = req.params;
   const { email, password, fullName, phoneNumber, isActive } = req.body;
@@ -75,7 +72,6 @@ export const updateOperator = async (req: Request, res: Response): Promise<any> 
       return res.status(404).json({ success: false, message: "Supir tidak ditemukan" });
     }
 
-    // Cek apakah email yang baru diinput bentrok dengan email user lain
     if (email && email !== existingSupir.email) {
       const emailTerpakai = await prisma.user.findUnique({ where: { email } });
       if (emailTerpakai) {
@@ -83,7 +79,6 @@ export const updateOperator = async (req: Request, res: Response): Promise<any> 
       }
     }
 
-    // Siapkan wadah untuk data yang akan di-update
     const dataUpdate: any = {
       fullName,
       email,
@@ -91,8 +86,6 @@ export const updateOperator = async (req: Request, res: Response): Promise<any> 
       isActive
     };
 
-    // 🔥 LOGIKA RESET PASSWORD
-    // Jika admin mengetik sesuatu di kolom password (tidak kosong), maka hash password baru tsb
     if (password && password.trim() !== "") {
       const salt = await bcrypt.genSalt(10);
       dataUpdate.passwordHash = await bcrypt.hash(password, salt);
@@ -127,9 +120,9 @@ export const deleteOperator = async (req: Request, res: Response): Promise<any> 
     return res.status(200).json({ success: true, message: "Supir berhasil dihapus" });
   } catch (error: any) {
     if (error.code === 'P2003') {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Gagal menghapus! Supir ini tidak bisa dihapus karena masih terikat dengan riwayat tugas/laporan atau truk." 
+      return res.status(400).json({
+        success: false,
+        message: "Gagal menghapus! Supir ini tidak bisa dihapus karena masih terikat dengan riwayat tugas/laporan atau truk."
       });
     }
     return res.status(500).json({ success: false, message: error.message });
@@ -149,17 +142,16 @@ export const tugaskanLaporan = async (req: Request, res: Response): Promise<any>
   }
 
   try {
-    const updateLaporan = await prisma.report.update({
+    await prisma.report.update({
       where: { id: BigInt(idLaporan) },
-      data: { 
-        status: 'DIPROSES', 
-        operatorId: BigInt(idSupir) 
+      data: {
+        status: 'DITINDAKLANJUTI',
       }
     });
 
-    return res.status(200).json({ 
-      success: true, 
-      message: "Berhasil! Laporan telah ditugaskan ke Supir." 
+    return res.status(200).json({
+      success: true,
+      message: "Berhasil! Laporan telah ditugaskan ke Supir."
     });
   } catch (error: any) {
     console.error("ERROR TUGASKAN LAPORAN:", error);
@@ -193,19 +185,22 @@ export const getSemuaTruk = async (req: Request, res: Response): Promise<any> =>
 };
 
 export const addTruk = async (req: Request, res: Response): Promise<any> => {
-  const { plateNumber, operatorId, status, lastLocation } = req.body;
+  const { plateNumber, operatorId, status, lastLocation, unitCode, brand, truckType } = req.body;
   try {
     const existingTruk = await prisma.truck.findUnique({ where: { plateNumber } });
     if (existingTruk) return res.status(400).json({ success: false, message: "Plat nomor ini sudah terdaftar!" });
 
-    const newTruk = await prisma.truck.create({
-      data: {
-        plateNumber,
-        status: status || 'AVAILABLE',
-        lastLocation: lastLocation || '',
-        operatorId: operatorId ? BigInt(operatorId) : null
-      }
-    });
+await prisma.truck.create({
+  data: {
+    plateNumber,
+    unitCode,
+    brand,
+    truckType,
+    status: status || 'AVAILABLE',
+    lastLocation: lastLocation || '',
+    operatorId: operatorId ? BigInt(operatorId) : null
+  }
+});
 
     return res.status(201).json({ success: true, message: "Truk berhasil didaftarkan" });
   } catch (error: any) {
@@ -269,16 +264,16 @@ export const getSemuaWilayah = async (req: Request, res: Response): Promise<any>
 
 export const addWilayah = async (req: Request, res: Response): Promise<any> => {
   const { name, code, population, address, capacityVolume, latitude, longitude, radius, isActive } = req.body;
-  
+
   try {
-    const uniqueCode = code && code.trim() !== "" 
-      ? code 
+    const uniqueCode = code && code.trim() !== ""
+      ? code
       : `KEC-${name.toUpperCase().substring(0, 3)}-${Date.now().toString().slice(-4)}`;
 
     const newWilayah = await prisma.location.create({
       data: {
         name,
-        code: uniqueCode, 
+        code: uniqueCode,
         population: population ? parseInt(population) : null,
         address: address || "",
         capacityVolume: capacityVolume ? parseInt(capacityVolume) : null,
@@ -286,14 +281,14 @@ export const addWilayah = async (req: Request, res: Response): Promise<any> => {
         longitude: longitude.toString(),
         radius: radius ? parseInt(radius) : 5000,
         isActive: isActive !== undefined ? isActive : true,
-        locationType: 'KECAMATAN' 
+        locationType: 'KECAMATAN'
       }
     });
 
-    return res.status(201).json({ 
-      success: true, 
-      message: "Wilayah berhasil ditambahkan", 
-      data: { ...newWilayah, id: newWilayah.id.toString() } 
+    return res.status(201).json({
+      success: true,
+      message: "Wilayah berhasil ditambahkan",
+      data: { ...newWilayah, id: newWilayah.id.toString() }
     });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
@@ -322,6 +317,133 @@ export const deleteWilayah = async (req: Request, res: Response): Promise<any> =
   try {
     await prisma.location.delete({ where: { id: BigInt(id) } });
     return res.status(200).json({ success: true, message: "Wilayah berhasil dihapus" });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==========================================
+// BAGIAN 5: TRACKING SUPIR (LOKASI REAL-TIME)
+// ==========================================
+
+export const getTrukAktif = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const trukAktif = await prisma.truck.findMany({
+      where: { status: 'BUSY' },
+      include: {
+        operator: { select: { id: true, fullName: true, phoneNumber: true } },
+        tasks: {
+          where: { status: { in: ['DITERIMA', 'DALAM_PERJALANAN', 'TIBA', 'BEKERJA'] } },
+          orderBy: { updatedAt: 'desc' },
+          take: 1,
+          select: { status: true, location: true, district: true }
+        }
+      }
+    });
+
+    const formatted = trukAktif.map(truk => ({
+      id: truk.id.toString(),
+      plateNumber: truk.plateNumber,
+      status: truk.status,
+      currentLat: truk.currentLat ? Number(truk.currentLat) : null,
+      currentLong: truk.currentLong ? Number(truk.currentLong) : null,
+      lastPing: truk.lastPing,
+      lastLocation: truk.lastLocation,
+      operator: truk.operator
+        ? { ...truk.operator, id: truk.operator.id.toString() }
+        : null,
+      taskAktif: truk.tasks[0] || null
+    }));
+
+    return res.status(200).json({ success: true, data: formatted });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getRiwayatJalur = async (req: Request, res: Response): Promise<any> => {
+  const { truckId } = req.params;
+  const { tanggal } = req.query;
+
+  try {
+    const startDate = tanggal
+      ? new Date(`${tanggal}T00:00:00.000Z`)
+      : new Date(new Date().setHours(0, 0, 0, 0));
+    const endDate = tanggal
+      ? new Date(`${tanggal}T23:59:59.999Z`)
+      : new Date(new Date().setHours(23, 59, 59, 999));
+
+    const history = await prisma.locationHistory.findMany({
+      where: {
+        truckId: BigInt(truckId),
+        createdAt: { gte: startDate, lte: endDate }
+      },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    const truk = await prisma.truck.findUnique({
+      where: { id: BigInt(truckId) },
+      include: { operator: { select: { fullName: true } } }
+    });
+
+    const jalur = history.map(h => ({
+      lat: Number(h.latitude),
+      lng: Number(h.longitude),
+      timestamp: h.createdAt
+    }));
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        truckId,
+        plateNumber: truk?.plateNumber,
+        operatorName: truk?.operator?.fullName,
+        tanggal: tanggal || new Date().toISOString().split('T')[0],
+        totalTitik: jalur.length,
+        jalur
+      }
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const updateLokasiTruk = async (req: Request, res: Response): Promise<any> => {
+  const { truckId, latitude, longitude } = req.body;
+
+  if (!truckId || !latitude || !longitude) {
+    return res.status(400).json({ success: false, message: 'truckId, latitude, longitude wajib diisi' });
+  }
+
+  try {
+    await prisma.truck.update({
+      where: { id: BigInt(truckId) },
+      data: {
+        currentLat: latitude.toString(),
+        currentLong: longitude.toString(),
+        lastPing: new Date()
+      }
+    });
+
+    await prisma.locationHistory.create({
+      data: {
+        truckId: BigInt(truckId),
+        latitude: latitude.toString(),
+        longitude: longitude.toString()
+      }
+    });
+
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('truck_location_update', {
+        truckId: truckId.toString(),
+        latitude: Number(latitude),
+        longitude: Number(longitude),
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    return res.status(200).json({ success: true, message: 'Lokasi berhasil diupdate' });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }

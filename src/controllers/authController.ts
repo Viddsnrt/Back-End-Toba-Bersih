@@ -1,9 +1,9 @@
 import type { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../config/db.js';
 import * as bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
-const prisma = new PrismaClient();
+
 
 export const login = async (req: Request, res: Response): Promise<any> => {
   const { email, password } = req.body;

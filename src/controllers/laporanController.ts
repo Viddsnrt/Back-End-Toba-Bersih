@@ -39,8 +39,21 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
   const file = req.file;
 
   try {
-    if (!userId) {
-      return res.status(400).json({ success: false, message: "ID User tidak ditemukan." });
+    // 🔒 CEK USER VALID
+ // 🔒 CEK USER (Sekarang Fleksibel/Opsional)
+    let finalUserId: bigint | null = null;
+    // Jika userId kosong/null/undefined/''/NaN, treat as masyarakat umum
+    if (userId !== undefined && userId !== null && userId !== '' && !isNaN(Number(userId))) {
+      try {
+        const userExists = await prisma.user.findUnique({ where: { id: BigInt(userId) } });
+        if (userExists) {
+          finalUserId = BigInt(userId);
+        }
+        // Jika user tidak ditemukan, treat as masyarakat umum (finalUserId tetap null)
+      } catch {
+        // Jika error konversi, treat as masyarakat umum
+        finalUserId = null;
+      }
     }
 
     // ✅ PERBAIKAN: Simpan locationId dari geofence
@@ -97,7 +110,7 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
 
     const dataBaru = await prisma.report.create({
       data: {
-        userId: BigInt(userId),
+        userId: finalUserId,
         description: description || deskripsi || '',
         latitude: parseFloat(latitude) || 0,
         longitude: parseFloat(longitude) || 0,
@@ -108,16 +121,17 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
       },
     });
 
-    return res.status(201).json({
-      success: true,
-      message: 'Laporan berhasil dikirim!',
-      data: {
-        ...dataBaru,
-        id: dataBaru.id.toString(),
-        userId: dataBaru.userId.toString(),
-        locationId: dataBaru.locationId?.toString() || null,
-      }
-    });
+  return res.status(201).json({
+  success: true,
+  message: 'Laporan berhasil dikirim!',
+  data: {
+    ...dataBaru,
+    id: dataBaru.id.toString(),
+    // Gunakan Optional Chaining (?.) agar tidak error jika null
+    userId: dataBaru.userId?.toString() || null, 
+    locationId: dataBaru.locationId?.toString() || null,
+  }
+});
   } catch (error: any) {
     console.error("ERROR CREATE LAPORAN:", error);
     return res.status(500).json({ success: false, message: `Gagal mengirim laporan: ${error.message}` });

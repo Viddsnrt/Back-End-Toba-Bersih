@@ -1,9 +1,9 @@
-import express from 'express';
-import type { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import http from 'http';
-import { Server } from 'socket.io';
+import express from "express";
+import type { Request, Response, NextFunction } from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import http from "http";
+import { Server } from "socket.io";
 
 import { prisma } from './config/db.js';
 import laporanRoutes from './routes/laporanRoutes.js';
@@ -16,24 +16,39 @@ import dashboardRoutes from './routes/dashboardRoutes.js';
 import postsRoutes from './routes/postRoutes.js';
 
 dotenv.config();
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Setup Socket.io
+
+// 1. SETUP CORS YANG BENAR (Pindahkan ke sini, sebelum app.use rute)
+app.use(cors({
+  origin: ['http://localhost:3000', 'https://confoundedly-granitic-janetta.ngrok-free.dev'], 
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
+  credentials: true
+}));
+
+
+
+
+// ================= SOCKET.IO =================
 const server = http.createServer(app);
+
 const io = new Server(server, {
-  cors: { 
-    origin: '*',
-    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE']
-  }
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
+  },
 });
 
-app.set('io', io);
+app.set("io", io);
 
-io.on('connection', (socket) => {
-  console.log('📱 Klien terhubung:', socket.id);
-  socket.on('disconnect', () => {
-    console.log('Klien terputus:', socket.id);
+io.on("connection", (socket) => {
+  console.log("📱 Klien terhubung:", socket.id);
+
+  socket.on("disconnect", () => {
+    console.log("❌ Klien terputus:", socket.id);
   });
 });
 
@@ -50,45 +65,55 @@ app.use('/api/posts', postsRoutes);
 
 (BigInt.prototype as any).toJSON = function () { return this.toString(); };
 
-const seedUser = async () => {
+// ================= SEED ADMIN =================
+const seedAdmin = async () => {
   try {
-    const admin = await prisma.user.findUnique({ where: { email: "admin@dlh.com" } });
+    const admin = await prisma.user.findUnique({
+      where: { email: "admin@dlh.com" },
+    });
+
     if (!admin) {
       await prisma.user.create({
         data: {
           fullName: "Administrator DLH",
           email: "admin@dlh.com",
-          passwordHash: "admin123",
+          passwordHash: "admin123", // ⚠️ sebaiknya bcrypt
           role: "ADMIN",
-          isActive: true
-        }
+          isActive: true,
+        },
       });
-      console.log("✅ User Admin Default OK");
+
+      console.log("✅ Admin default dibuat");
     }
-  } catch (e) { 
-    console.error("🔥 Seeding gagal:", e); 
+  } catch (error) {
+    console.error("❌ Seed admin gagal:", error);
   }
 };
 
-seedUser();
+seedAdmin();
 
-app.get('/', (req: Request, res: Response) => {
-  res.send('🚀 Server TobaBersih OK!');
+// ================= ROOT =================
+app.get("/", (req: Request, res: Response) => {
+  res.send("🚀 Server TobaBersih OK!");
 });
 
-// Error middleware - HARUS 4 parameter agar Express mengenalinya sebagai error handler
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-  console.error('❌ Error:', err);
-  res.status(500).json({ success: false, error: 'Internal Server Error' });
+// ================= ERROR HANDLER =================
+app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+  console.error("🔥 ERROR:", err);
+  res.status(500).json({
+    success: false,
+    message: err.message || "Internal Server Error",
+  });
 });
 
+// ================= START SERVER =================
 server.listen(PORT, () => {
-  console.log(`🚀 Server nyala di http://localhost:${PORT}`);
-  console.log(`🔌 WebSocket aktif!`);
+  console.log(`🚀 Server jalan di http://localhost:${PORT}`);
+  console.log("🔌 WebSocket aktif");
 });
 
-// Graceful shutdown
-process.on('SIGTERM', async () => {
+// ================= GRACEFUL SHUTDOWN =================
+process.on("SIGTERM", async () => {
   await prisma.$disconnect();
   server.close(() => process.exit(0));
 });

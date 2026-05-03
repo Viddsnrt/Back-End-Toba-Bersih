@@ -4,12 +4,11 @@ import { uploadImage } from '../controllers/uploadcontroller.js';
 
 const router = Router();
 
-// Simpan file di memory (buffer), bukan di disk
 const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // maks 5MB
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB — konsisten dengan validasi frontend
   fileFilter: (_req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
       cb(null, true);
@@ -19,6 +18,19 @@ const upload = multer({
   },
 });
 
-router.post('/', upload.single('image'), uploadImage);
+// FIX: tambah error handler untuk multer limit exceeded
+router.post('/', (req, res, next) => {
+  upload.single('image')(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: 'Ukuran file melebihi batas maksimal 5MB' });
+      }
+      return res.status(400).json({ message: err.message });
+    } else if (err) {
+      return res.status(400).json({ message: err.message });
+    }
+    next();
+  });
+}, uploadImage);
 
 export default router;

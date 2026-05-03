@@ -12,7 +12,7 @@ export const authenticateToken = (
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
-  if (!token) {
+  if (!token) {    
     res.status(401).json({ 
       success: false,
       message: 'Token tidak ditemukan. Silakan login terlebih dahulu.' 
