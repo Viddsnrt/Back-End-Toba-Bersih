@@ -262,6 +262,117 @@ export const getSemuaWilayah = async (req: Request, res: Response): Promise<any>
   }
 };
 
+// 🚨 BARU: Validasi data wilayah untuk debugging masalah lokasi
+export const validateWilayahData = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const listWilayah = await prisma.location.findMany({
+      orderBy: { name: 'asc' }
+    });
+
+    if (listWilayah.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "⚠️ Tidak ada data wilayah di database",
+        data: null,
+        total: 0
+      });
+    }
+
+    const wilayahValid = [];
+    const wilayahInvalid = [];
+    const wilayahTidakAktif = [];
+
+    console.log(`🔍 Memvalidasi ${listWilayah.length} wilayah...`);
+
+    for (const wilayah of listWilayah) {
+      const wilayahInfo = {
+        id: wilayah.id.toString(),
+        name: wilayah.name,
+        code: wilayah.code,
+        isActive: wilayah.isActive,
+        latitude: wilayah.latitude,
+        longitude: wilayah.longitude,
+        radius: wilayah.radius,
+        population: wilayah.population,
+        capacityVolume: wilayah.capacityVolume
+      };
+
+      // Validasi format koordinat
+      const lat = parseFloat(wilayah.latitude);
+      const lon = parseFloat(wilayah.longitude);
+
+      if (isNaN(lat) || isNaN(lon)) {
+        wilayahInvalid.push({
+          ...wilayahInfo,
+          error: "Koordinat tidak valid"
+        });
+        continue;
+      }
+
+      // Validasi range koordinat (untuk Toba)
+      if (lat < 2.0 || lat > 3.5 || lon < 98.5 || lon > 100.0) {
+        wilayahInvalid.push({
+          ...wilayahInfo,
+          error: "Koordinat di luar range Kabupaten Toba"
+        });
+        continue;
+      }
+
+      // Validasi radius
+      if (!wilayah.radius || wilayah.radius < 1000 || wilayah.radius > 50000) {
+        wilayahInvalid.push({
+          ...wilayahInfo,
+          error: "Radius tidak valid (harus 1000-50000 meter)"
+        });
+        continue;
+      }
+
+      // Jika aktif, tambahkan informasi tambahan
+      if (wilayah.isActive) {
+        wilayahInfo.status = "VALID";
+
+        // Hitung luas area (estimasi)
+        const luasArea = Math.PI * Math.pow(wilayah.radius / 1000, 2); // dalam km²
+        wilayahInfo.luasAreaKm2 = luasArea.toFixed(2);
+
+        // Hitung estimasi populasi per km²
+        if (wilayah.population && wilayah.population > 0) {
+          wilayahInfo.kepadatanPopulasiPerKm2 = Math.round(wilayah.population / luasArea);
+        }
+
+        wilayahValid.push(wilayahInfo);
+      } else {
+        wilayahTidakAktif.push({
+          ...wilayahInfo,
+          status: "TIDAK AKTIF"
+        });
+      }
+    }
+
+    console.log(`✅ ${wilayahValid.length} wilayah valid, ${wilayahInvalid.length} tidak valid, ${wilayahTidakAktif.length} tidak aktif`);
+
+    return res.status(200).json({
+      success: true,
+      message: "Validasi data wilayah selesai",
+      data: {
+        valid: wilayahValid,
+        invalid: wilayahInvalid,
+        inactive: wilayahTidakAktif,
+        summary: {
+          total: listWilayah.length,
+          valid: wilayahValid.length,
+          invalid: wilayahInvalid.length,
+          inactive: wilayahTidakAktif.length,
+          active: wilayahValid.length
+        }
+      }
+    });
+  } catch (error: any) {
+    console.error("ERROR VALIDASI WILAYAH:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const addWilayah = async (req: Request, res: Response): Promise<any> => {
   const { name, code, population, address, capacityVolume, latitude, longitude, radius, isActive } = req.body;
 

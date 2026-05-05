@@ -18,7 +18,6 @@ model User {
   fullName      String         @map("full_name")
   phoneNumber   String?        @map("phone_number")
   role          Role           @default(WARGA)
-  region        String?
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at")
   isActive      Boolean        @default(true)
@@ -143,7 +142,7 @@ model LocationHistory {
 
 model Route {
   id              BigInt    @id @default(autoincrement())
-  truckId         BigInt    @map("truck_id")  
+  truckId         BigInt    @map("truck_id")
   date            DateTime  @db.Date
   startLocationId BigInt?   @map("start_location_id")
   status          String    @default("PLANNED") @map("route_status")
@@ -164,6 +163,7 @@ model Volume {
 
   @@map("volumes")
 }
+
 
 model Post {
   id          Int      @id @default(autoincrement())
@@ -211,7 +211,7 @@ model Task {
   taskNumber  String      @unique @map("task_number")
   type        String
   status      TaskStatus  @default(DITUGASKAN)
-  driverId    BigInt      @map("driver_id")
+  driverId    BigInt?     @map("driver_id")
   truckId     BigInt?     @map("truck_id")
   assignerId  BigInt?     @map("assigner_id")
   reportId    BigInt?     @unique @map("report_id")

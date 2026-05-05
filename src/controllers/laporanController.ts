@@ -1,19 +1,6 @@
 import type { Request, Response } from 'express';
 import { prisma, supabase } from '../config/db.js';
 
-// =========================================================================
-// Fungsi tambahan: Rumus Haversine untuk menghitung jarak 2 titik GPS
-// =========================================================================
-const hitungJarakGPS = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-  const R = 6371; // Radius Bumi dalam Kilometer
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c; 
-};
 
 // GET /api/laporan (Untuk ditampilkan di Web Admin)
 export const getLaporan = async (req: Request, res: Response): Promise<any> => {
@@ -56,37 +43,7 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
       }
     }
 
-    // ✅ PERBAIKAN: Simpan locationId dari geofence
-    let matchedLocationId: bigint | null = null;
-
-    if (latitude && longitude) {
-      const activeLocations = await prisma.location.findMany({ where: { isActive: true } });
-      let isInsideCoverage = false;
-
-      for (const loc of activeLocations) {
-        const locLat = Number(loc.latitude);
-        const locLon = Number(loc.longitude);
-        const jarakKm = hitungJarakGPS(
-          parseFloat(latitude), parseFloat(longitude),
-          locLat, locLon
-        );
-        const jarakMeter = Math.round(jarakKm * 1000);
-        const batasRadiusMeter = loc.radius || 5000;
-
-        if (jarakMeter <= batasRadiusMeter) {
-          isInsideCoverage = true;
-          matchedLocationId = loc.id; // ✅ Simpan ID wilayah yang cocok
-          break;
-        }
-      }
-
-      if (!isInsideCoverage) {
-        return res.status(403).json({
-          success: false,
-          message: "⚠️ Laporan Ditolak: Lokasi Anda saat ini berada di luar area layanan 9 Kecamatan Kabupaten Toba!"
-        });
-      }
-    }
+    // ✅ Laporan bisa dibuat dari lokasi apa saja (tanpa validasi geofence)
 
     // Upload foto ke Supabase (tidak berubah)
     let finalPhotoUrl = bodyPhotoUrl || null;
@@ -108,16 +65,29 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
     if (jenisSampah === 'Sampah Danau') mappedJenisSampah = 'CAMPURAN';
     if (jenisSampah === 'Lainnya') mappedJenisSampah = 'CAMPURAN';
 
+    // Cari user exist sebagai fallback jika userId tidak valid
+    let fallbackUserId = null;
+    if (!finalUserId) {
+      const fallbackUser = await prisma.user.findFirst({
+        where: {
+          role: { in: ['WARGA', 'ADMIN', 'OPERATOR'] },
+          isActive: true
+        }
+      });
+      if (fallbackUser) {
+        fallbackUserId = fallbackUser.id;
+      }
+    }
+
     const dataBaru = await prisma.report.create({
       data: {
-        userId: finalUserId,
+        userId: finalUserId || fallbackUserId,
         description: description || deskripsi || '',
         latitude: parseFloat(latitude) || 0,
         longitude: parseFloat(longitude) || 0,
         jenisSampah: mappedJenisSampah,
         status: 'PENDING',
         photoUrl: finalPhotoUrl,
-        locationId: matchedLocationId, // ✅ Sekarang tersimpan ke DB
       },
     });
 

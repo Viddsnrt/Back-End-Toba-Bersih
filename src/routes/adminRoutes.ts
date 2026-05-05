@@ -10,13 +10,14 @@ import {
   addTruk,
   updateTruk,
   deleteTruk,
-  getSemuaWilayah,  
+  getSemuaWilayah,
   addWilayah,
   toggleWilayahStatus,
   deleteWilayah,
   getTrukAktif,
   getRiwayatJalur,
-  updateLokasiTruk
+  updateLokasiTruk,
+  validateWilayahData
 } from '../controllers/adminController.js';
 
 const router = Router();
@@ -35,6 +36,7 @@ router.delete('/truks/:id', authenticateToken, deleteTruk);
 
 // --- Rute Wilayah (Location) ---
 router.get('/wilayah', authenticateToken, getSemuaWilayah);
+router.get('/wilayah/validate', validateWilayahData);
 router.post('/wilayah', authenticateToken, addWilayah);
 router.patch('/wilayah/:id/toggle', authenticateToken, toggleWilayahStatus);
 router.delete('/wilayah/:id', authenticateToken, deleteWilayah);

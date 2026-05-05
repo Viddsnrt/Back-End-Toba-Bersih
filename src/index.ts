@@ -14,6 +14,13 @@ import driverRoutes from './routes/driverRoutes.js';
 import penugasanRoutes from './routes/penugasanRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import postsRoutes from './routes/postRoutes.js';
+import trackingRoutes from './routes/trackingRoutes.js';
+import aiRoutes from './routes/aiRoutes.js';
+import galleryRoutes from './routes/galleryRoutes.js';
+import usersRoutes from './routes/usersRoutes.js';
+import wilayahRoutes from './routes/wilayahRoutes.js';
+import RouteRoutes from './routes/Route.routes.js';
+import akunmasyarakatRoutes from './routes/akunmasyarakatRoutes.js';
 
 dotenv.config();
 
@@ -52,16 +59,21 @@ io.on("connection", (socket) => {
   });
 });
 
-app.use(cors());
 app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/upload', uploadRoutes); 
+app.use('/api/upload', uploadRoutes);
 app.use('/api/driver', driverRoutes);
 app.use('/api/laporan', laporanRoutes);
 app.use('/api/penugasan', penugasanRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/posts', postsRoutes);
+app.use('/api/tracking', trackingRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/gallery', galleryRoutes);
+app.use('/api/wilayah', wilayahRoutes);
+app.use('/api/rute', RouteRoutes);
+app.use('/api/users', akunmasyarakatRoutes);
 
 (BigInt.prototype as any).toJSON = function () { return this.toString(); };
 
@@ -73,11 +85,14 @@ const seedAdmin = async () => {
     });
 
     if (!admin) {
+      const bcrypt = (await import('bcrypt')).default;
+      const hashedPassword = await bcrypt.hash("admin123", 10);
+
       await prisma.user.create({
         data: {
           fullName: "Administrator DLH",
           email: "admin@dlh.com",
-          passwordHash: "admin123", // ⚠️ sebaiknya bcrypt
+          passwordHash: hashedPassword,
           role: "ADMIN",
           isActive: true,
         },
@@ -90,7 +105,10 @@ const seedAdmin = async () => {
   }
 };
 
-seedAdmin();
+// Jalankan seed hanya jika database terhubung
+if (process.env.NODE_ENV !== 'test') {
+  seedAdmin();
+}
 
 // ================= ROOT =================
 app.get("/", (req: Request, res: Response) => {
