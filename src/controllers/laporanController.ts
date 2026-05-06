@@ -1,7 +1,6 @@
 import type { Request, Response } from 'express';
 import { prisma, supabase } from '../config/db.js';
 
-
 // GET /api/laporan (Untuk ditampilkan di Web Admin)
 export const getLaporan = async (req: Request, res: Response): Promise<any> => {
   try {
@@ -12,7 +11,17 @@ export const getLaporan = async (req: Request, res: Response): Promise<any> => {
         location: true
       }
     });
-    return res.json({ success: true, data });
+
+    // 🔥 PERBAIKAN UTAMA: Wajib konversi BigInt ke String agar Web Admin tidak crash!
+    const formattedData = data.map((item: any) => ({
+      ...item,
+      id: item.id.toString(),
+      userId: item.userId?.toString() || null,
+      locationId: item.locationId ? item.locationId.toString() : null,
+      location: item.location ? { ...item.location, id: item.location.id.toString() } : null
+    }));
+
+    return res.json({ success: true, data: formattedData });
   } catch (error: any) {
     console.error("ERROR GET LAPORAN:", error);
     return res.status(500).json({ success: false, message: "Gagal ambil data", detail: error.message });
@@ -20,32 +29,28 @@ export const getLaporan = async (req: Request, res: Response): Promise<any> => {
 };
 
 // POST /api/laporan/create (Untuk Warga Kirim Laporan dari Mobile)
-// POST /api/laporan/create
 export const createLaporan = async (req: Request, res: Response): Promise<any> => {
   const { userId, description, deskripsi, latitude, longitude, jenisSampah, photoUrl: bodyPhotoUrl } = req.body;
   const file = req.file;
 
   try {
-    // 🔒 CEK USER VALID
- // 🔒 CEK USER (Sekarang Fleksibel/Opsional)
+    // 🔒 CEK USER (Sekarang Fleksibel/Opsional)
     let finalUserId: bigint | null = null;
-    // Jika userId kosong/null/undefined/''/NaN, treat as masyarakat umum
+    
+    // Jika userId terisi dengan benar
     if (userId !== undefined && userId !== null && userId !== '' && !isNaN(Number(userId))) {
       try {
         const userExists = await prisma.user.findUnique({ where: { id: BigInt(userId) } });
         if (userExists) {
           finalUserId = BigInt(userId);
         }
-        // Jika user tidak ditemukan, treat as masyarakat umum (finalUserId tetap null)
       } catch {
-        // Jika error konversi, treat as masyarakat umum
+        // Jika error konversi, biarkan finalUserId null
         finalUserId = null;
       }
     }
 
-    // ✅ Laporan bisa dibuat dari lokasi apa saja (tanpa validasi geofence)
-
-    // Upload foto ke Supabase (tidak berubah)
+    // Upload foto ke Supabase
     let finalPhotoUrl = bodyPhotoUrl || null;
     if (file) {
       const fileName = `${Date.now()}-${file.originalname.replace(/\s/g, '_')}`;
@@ -59,7 +64,8 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
       finalPhotoUrl = publicUrlData.publicUrl;
     }
 
-    let mappedJenisSampah = 'CAMPURAN';
+    // Pastikan tipe data sesuai dengan Enum Prisma
+    let mappedJenisSampah: 'CAMPURAN' | 'ANORGANIK' | 'ORGANIK' | 'B3' = 'CAMPURAN';
     if (jenisSampah === 'Tumpukan Sampah') mappedJenisSampah = 'CAMPURAN';
     if (jenisSampah === 'Fasilitas Rusak') mappedJenisSampah = 'ANORGANIK';
     if (jenisSampah === 'Sampah Danau') mappedJenisSampah = 'CAMPURAN';
@@ -91,17 +97,16 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
       },
     });
 
-  return res.status(201).json({
-  success: true,
-  message: 'Laporan berhasil dikirim!',
-  data: {
-    ...dataBaru,
-    id: dataBaru.id.toString(),
-    // Gunakan Optional Chaining (?.) agar tidak error jika null
-    userId: dataBaru.userId?.toString() || null, 
-    locationId: dataBaru.locationId?.toString() || null,
-  }
-});
+    return res.status(201).json({
+      success: true,
+      message: 'Laporan berhasil dikirim!',
+      data: {
+        ...dataBaru,
+        id: dataBaru.id.toString(),
+        userId: dataBaru.userId?.toString() || null, 
+        locationId: dataBaru.locationId?.toString() || null,
+      }
+    });
   } catch (error: any) {
     console.error("ERROR CREATE LAPORAN:", error);
     return res.status(500).json({ success: false, message: `Gagal mengirim laporan: ${error.message}` });
@@ -113,13 +118,19 @@ export const getLaporanByUser = async (req: Request, res: Response): Promise<any
   try {
     const data = await prisma.report.findMany({
       where: { userId: BigInt(userId) },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      include: {
+        location: true
+      }
     });
 
+    // Wajib konversi BigInt di sini juga
     const formattedData = data.map((item: any) => ({
       ...item,
       id: item.id.toString(),
-      userId: item.userId.toString()
+      userId: item.userId?.toString() || null,
+      locationId: item.locationId?.toString() || null,
+      location: item.location ? { ...item.location, id: item.location.id.toString() } : null
     }));
 
     return res.json({ success: true, data: formattedData });
@@ -143,15 +154,13 @@ export const updateStatus = async (req: Request, res: Response): Promise<any> =>
       data: { status }
     });
 
-    // =========================================================
     // 🔥 FITUR REAL-TIME: Kirim event WebSocket ke HP Flutter!
-    // =========================================================
-    const io = req.app.get('io'); // Mengambil instance Socket.io dari index.ts
+    const io = req.app.get('io'); 
     
     if (io) {
       io.emit('status_laporan_berubah', {
-        reportId: update.id.toString(), // Kirim ID laporan yang baru diubah
-        newStatus: update.status        // Kirim status barunya (DIPROSES/SELESAI)
+        reportId: update.id.toString(), 
+        newStatus: update.status        
       });
       console.log(`[Socket.io] Status Update Terkirim: Laporan ${update.id} menjadi ${update.status}`);
     }
@@ -159,7 +168,12 @@ export const updateStatus = async (req: Request, res: Response): Promise<any> =>
     return res.json({ 
       success: true, 
       message: "Status berhasil diupdate", 
-      data: { ...update, id: update.id.toString() } 
+      data: { 
+        ...update, 
+        id: update.id.toString(),
+        userId: update.userId?.toString() || null,
+        locationId: update.locationId?.toString() || null
+      } 
     });
   } catch (error: any) {
     console.error("ERROR UPDATE STATUS:", error);

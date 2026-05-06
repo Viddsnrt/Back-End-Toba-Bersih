@@ -229,7 +229,7 @@ model Task {
   notes       String?
   photos      TaskPhoto[]
   assigner    User?       @relation("TaskAssigner", fields: [assignerId], references: [id])
-  driver      User        @relation("TaskDriver", fields: [driverId], references: [id])
+  driver      User?        @relation("TaskDriver", fields: [driverId], references: [id])
   report      Report?     @relation(fields: [reportId], references: [id])
   truck       Truck?      @relation(fields: [truckId], references: [id])
 
