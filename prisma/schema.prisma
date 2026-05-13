@@ -17,6 +17,7 @@ model User {
   passwordHash  String         @map("password_hash")
   fullName      String         @map("full_name")
   phoneNumber   String?        @map("phone_number")
+  region        String?        @map("region")
   role          Role           @default(WARGA)
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at")
@@ -31,6 +32,7 @@ model User {
 
   @@map("users")
 }
+
 
 model Location {
   id             BigInt                    @id @default(autoincrement())

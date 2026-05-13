@@ -2,6 +2,8 @@ import type { Request, Response } from 'express';
 import { prisma } from '../config/db.js';
 import { Prisma } from '@prisma/client';
 
+// --- UTILS / HELPER FUNCTIONS ---
+
 const parseOptionalInt = (value: unknown): number | null => {
   if (value === undefined || value === null || value === '') return null;
   const parsed = Number.parseInt(String(value), 10);
@@ -29,28 +31,34 @@ const parseOptionalBoolean = (value: unknown, fallback: boolean): boolean => {
 };
 
 const toBigIntParam = (value: string | string[] | undefined): bigint => {
-  if (Array.isArray(value)) {
-    return BigInt(value[0]);
-  }
-
-  if (!value) {
+  const val = Array.isArray(value) ? value[0] : value;
+  if (!val || isNaN(Number(val))) {
     throw new Error('ID tidak valid');
   }
-
-  return BigInt(value);
+  return BigInt(val);
 };
 
-// GET semua wilayah (kecamatan)
+const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  const R = 6371; // Radius bumi dalam kilometer
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * 
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
+// --- CONTROLLERS ---
+
 export const getAllWilayah = async (req: Request, res: Response) => {
   try {
     const wilayah = await prisma.location.findMany({
-      where: { 
-        locationType: 'KECAMATAN' 
-      },
+      where: { locationType: 'KECAMATAN' },
       orderBy: { name: 'asc' }
     });
 
-    // Format response
     const formatted = wilayah.map(w => ({
       id: w.id.toString(),
       name: w.name,
@@ -61,6 +69,7 @@ export const getAllWilayah = async (req: Request, res: Response) => {
       capacityVolume: w.capacityVolume,
       latitude: w.latitude.toString(),
       longitude: w.longitude.toString(),
+      radius: w.radius,
       center: [Number(w.latitude), Number(w.longitude)],
       createdAt: w.createdAt,
       updatedAt: w.updatedAt
@@ -73,18 +82,14 @@ export const getAllWilayah = async (req: Request, res: Response) => {
   }
 };
 
-// GET wilayah by ID
 export const getWilayahById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-
     const wilayah = await prisma.location.findUnique({
       where: { id: toBigIntParam(id) }
     });
 
-    if (!wilayah) {
-      return res.status(404).json({ error: 'Wilayah tidak ditemukan' });
-    }
+    if (!wilayah) return res.status(404).json({ error: 'Wilayah tidak ditemukan' });
 
     res.json({
       id: wilayah.id.toString(),
@@ -96,272 +101,232 @@ export const getWilayahById = async (req: Request, res: Response) => {
       capacityVolume: wilayah.capacityVolume,
       latitude: wilayah.latitude.toString(),
       longitude: wilayah.longitude.toString(),
+      radius: wilayah.radius,
       center: [Number(wilayah.latitude), Number(wilayah.longitude)],
       createdAt: wilayah.createdAt,
       updatedAt: wilayah.updatedAt
     });
   } catch (error) {
-    console.error('Error fetching wilayah:', error);
-    res.status(500).json({ error: 'Gagal mengambil data wilayah' });
+    console.error('Error fetching wilayah by ID:', error);
+    res.status(500).json({ error: 'ID tidak valid atau data tidak ditemukan' });
   }
 };
 
-// POST tambah wilayah baru
+const generateNameFromAddress = (address: string): string => {
+  if (!address) return 'Wilayah Tidak Diketahui';
+
+  // Extract district/area from address
+  const addressParts = address.split(',');
+  // Get the first part (usually the specific location)
+  const firstPart = addressParts[0]?.trim();
+
+  // If contains village/district names
+  const keywords = ['kecamatan', 'kelurahan', 'desa', 'kota', 'camatan'];
+  for (const keyword of keywords) {
+    const index = firstPart.toLowerCase().indexOf(keyword);
+    if (index !== -1) {
+      // Return part after the keyword
+      return firstPart.substring(index + keyword.length).trim();
+    }
+  }
+
+  // Return first part or first village name found
+  const villageMatch = firstPart.match(/(kelurahan|desa)\s+([^\d\s]+)/i);
+  if (villageMatch) {
+    return villageMatch[2].trim();
+  }
+
+  return firstPart.length > 50 ? firstPart.substring(0, 50) + '...' : firstPart;
+};
+
 export const createWilayah = async (req: Request, res: Response) => {
   try {
-    const { 
-      name, 
-      code, 
-      population, 
-      address, 
-      capacityVolume,
-      latitude,
-      longitude,
-      isActive 
+    const {
+      name, code, population, address,
+      capacityVolume, latitude, longitude, isActive, radius
     } = req.body;
-    const normalizedName = typeof name === 'string' ? name.trim() : name;
-    const normalizedCode = typeof code === 'string' ? code.trim() : code;
 
-    // Validasi input wajib
-    if (!normalizedName) {
-      return res.status(400).json({ error: 'Nama wilayah harus diisi' });
+    // Generate name if not provided
+    let finalName = name;
+    if (!finalName && address) {
+      finalName = generateNameFromAddress(address);
+    } else if (!finalName) {
+      finalName = `Wilayah ${new Date().toLocaleDateString('id-ID')}`;
     }
 
-    const parsedPopulation = parseOptionalInt(population);
-    const parsedCapacityVolume = parseOptionalInt(capacityVolume);
-    const parsedLatitude = parseOptionalFloat(latitude);
-    const parsedLongitude = parseOptionalFloat(longitude);
-    const parsedIsActive = parseOptionalBoolean(isActive, true);
+    const normalizedName = typeof finalName === 'string' ? finalName.trim() : finalName;
+    if (!normalizedName) return res.status(400).json({ error: 'Nama wilayah harus diisi' });
 
-    if (parsedLatitude === null || parsedLongitude === null) {
-      return res.status(400).json({ error: 'Latitude dan longitude wajib diisi dengan angka valid' });
+    const pLat = parseOptionalFloat(latitude);
+    const pLon = parseOptionalFloat(longitude);
+
+    if (pLat === null || pLon === null || !isLatitudeValid(pLat) || !isLongitudeValid(pLon)) {
+      return res.status(400).json({ error: 'Koordinat tidak valid' });
     }
 
-    if (!isLatitudeValid(parsedLatitude) || !isLongitudeValid(parsedLongitude)) {
-      return res.status(400).json({ error: 'Koordinat wilayah tidak valid' });
-    }
-
-    if (parsedLatitude === 0 && parsedLongitude === 0) {
+    if (pLat === 0 && pLon === 0) {
       return res.status(400).json({ error: 'Koordinat wilayah tidak valid (0,0)' });
     }
 
-    // Cek apakah kode sudah digunakan
-    if (normalizedCode) {
-      const existingCode = await prisma.location.findUnique({
-        where: { code: normalizedCode }
-      });
-      if (existingCode) {
-        return res.status(400).json({ error: 'Kode wilayah sudah digunakan' });
-      }
-    }
-
-    // Buat wilayah baru
     const newWilayah = await prisma.location.create({
       data: {
         name: normalizedName,
         locationType: 'KECAMATAN',
-        code: normalizedCode || null,
-        population: parsedPopulation,
+        code: code?.trim() || null,
+        population: parseOptionalInt(population),
         address: address || null,
-        capacityVolume: parsedCapacityVolume,
-        latitude: parsedLatitude,
-        longitude: parsedLongitude,
-        isActive: parsedIsActive
+        capacityVolume: parseOptionalInt(capacityVolume),
+        latitude: pLat,
+        longitude: pLon,
+        radius: parseOptionalInt(radius) || 5000,
+        isActive: parseOptionalBoolean(isActive, true)
       }
     });
 
-    res.status(201).json({
+    res.status(201).json({ 
+      ...newWilayah, 
       id: newWilayah.id.toString(),
-      name: newWilayah.name,
-      code: newWilayah.code,
-      isActive: newWilayah.isActive,
-      population: newWilayah.population,
-      address: newWilayah.address,
-      capacityVolume: newWilayah.capacityVolume,
       latitude: newWilayah.latitude.toString(),
       longitude: newWilayah.longitude.toString(),
-      center: [Number(newWilayah.latitude), Number(newWilayah.longitude)],
-      createdAt: newWilayah.createdAt
+      center: [Number(newWilayah.latitude), Number(newWilayah.longitude)]
     });
-
   } catch (error: any) {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      if (error.code === 'P2002') {
-        return res.status(400).json({ error: 'Kode wilayah sudah digunakan' });
-      }
-      if (error.code === 'P2003') {
-        return res.status(400).json({ error: 'Data relasi tidak valid' });
-      }
+      if (error.code === 'P2002') return res.status(400).json({ error: 'Kode wilayah sudah digunakan' });
     }
     console.error('Error creating wilayah:', error);
-    res.status(500).json({ error: error?.message || 'Gagal menambah wilayah' });
+    res.status(500).json({ error: 'Gagal menambah wilayah' });
   }
 };
 
-// PUT update wilayah
 export const updateWilayah = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { 
-      name, 
-      code, 
-      population, 
-      address, 
-      capacityVolume,
-      latitude,
-      longitude,
-      isActive 
-    } = req.body;
+    const data = req.body;
 
-    // Cek apakah wilayah ada
     const existingWilayah = await prisma.location.findUnique({
       where: { id: toBigIntParam(id) }
     });
 
-    if (!existingWilayah) {
-      return res.status(404).json({ error: 'Wilayah tidak ditemukan' });
-    }
+    if (!existingWilayah) return res.status(404).json({ error: 'Wilayah tidak ditemukan' });
 
-    const parsedPopulation = parseOptionalInt(population);
-    const parsedCapacityVolume = parseOptionalInt(capacityVolume);
-    const parsedLatitude = parseOptionalFloat(latitude);
-    const parsedLongitude = parseOptionalFloat(longitude);
-    const parsedIsActive = parseOptionalBoolean(isActive, existingWilayah.isActive);
+    const pLat = parseOptionalFloat(data.latitude);
+    const pLon = parseOptionalFloat(data.longitude);
 
-    if ((latitude !== undefined && parsedLatitude === null) || (longitude !== undefined && parsedLongitude === null)) {
-      return res.status(400).json({ error: 'Koordinat wilayah tidak valid' });
-    }
+    if (pLat !== null && !isLatitudeValid(pLat)) return res.status(400).json({ error: 'Latitude tidak valid' });
+    if (pLon !== null && !isLongitudeValid(pLon)) return res.status(400).json({ error: 'Longitude tidak valid' });
+    if (pLat === 0 && pLon === 0) return res.status(400).json({ error: 'Koordinat tidak valid (0,0)' });
 
-    if (parsedLatitude !== null && !isLatitudeValid(parsedLatitude)) {
-      return res.status(400).json({ error: 'Latitude harus di rentang -90 sampai 90' });
-    }
-
-    if (parsedLongitude !== null && !isLongitudeValid(parsedLongitude)) {
-      return res.status(400).json({ error: 'Longitude harus di rentang -180 sampai 180' });
-    }
-
-    if (parsedLatitude === 0 && parsedLongitude === 0) {
-      return res.status(400).json({ error: 'Koordinat wilayah tidak valid (0,0)' });
-    }
-
-    // Jika kode diubah, cek apakah sudah digunakan wilayah lain
-    if (code && code !== existingWilayah.code) {
-      const wilayahWithSameCode = await prisma.location.findUnique({
-        where: { code }
-      });
-      if (wilayahWithSameCode) {
-        return res.status(400).json({ error: 'Kode wilayah sudah digunakan' });
-      }
-    }
-
-    // Update data
-    const updatedWilayah = await prisma.location.update({
+    const updated = await prisma.location.update({
       where: { id: toBigIntParam(id) },
       data: {
-        name: name || existingWilayah.name,
-        code: code !== undefined ? code : existingWilayah.code,
-        population: parsedPopulation ?? existingWilayah.population,
-        address: address !== undefined ? address : existingWilayah.address,
-        capacityVolume: parsedCapacityVolume ?? existingWilayah.capacityVolume,
-        latitude: parsedLatitude ?? existingWilayah.latitude,
-        longitude: parsedLongitude ?? existingWilayah.longitude,
-        isActive: parsedIsActive,
+        name: data.name?.trim() || undefined,
+        code: data.code !== undefined ? data.code?.trim() : undefined,
+        population: parseOptionalInt(data.population) ?? undefined,
+        address: data.address !== undefined ? data.address : undefined,
+        capacityVolume: parseOptionalInt(data.capacityVolume) ?? undefined,
+        latitude: pLat ?? undefined,
+        longitude: pLon ?? undefined,
+        radius: parseOptionalInt(data.radius) ?? undefined,
+        isActive: data.isActive !== undefined ? parseOptionalBoolean(data.isActive, existingWilayah.isActive) : undefined,
       }
     });
 
-    res.json({
-      id: updatedWilayah.id.toString(),
-      name: updatedWilayah.name,
-      code: updatedWilayah.code,
-      isActive: updatedWilayah.isActive,
-      population: updatedWilayah.population,
-      address: updatedWilayah.address,
-      capacityVolume: updatedWilayah.capacityVolume,
-      latitude: updatedWilayah.latitude.toString(),
-      longitude: updatedWilayah.longitude.toString(),
-      center: [Number(updatedWilayah.latitude), Number(updatedWilayah.longitude)],
-      createdAt: updatedWilayah.createdAt,
-      updatedAt: updatedWilayah.updatedAt
+    res.json({ 
+      ...updated, 
+      id: updated.id.toString(),
+      latitude: updated.latitude.toString(),
+      longitude: updated.longitude.toString(),
+      center: [Number(updated.latitude), Number(updated.longitude)]
     });
-
-  } catch (error) {
+  } catch (error: any) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2002') return res.status(400).json({ error: 'Kode wilayah sudah digunakan' });
+    }
     console.error('Error updating wilayah:', error);
-    res.status(500).json({ error: 'Gagal mengupdate wilayah' });
+    res.status(500).json({ error: 'Gagal memperbarui wilayah' });
   }
 };
 
-// DELETE wilayah
 export const deleteWilayah = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-
-    // Cek apakah wilayah ada
-    const existingWilayah = await prisma.location.findUnique({
-      where: { id: toBigIntParam(id) }
-    });
-
-    if (!existingWilayah) {
-      return res.status(404).json({ error: 'Wilayah tidak ditemukan' });
-    }
-
-    // Hapus wilayah
-    await prisma.location.delete({
-      where: { id: toBigIntParam(id) }
-    });
-
+    const id = toBigIntParam(req.params.id);
+    await prisma.location.delete({ where: { id } });
     res.json({ message: 'Wilayah berhasil dihapus' });
-
   } catch (error) {
     console.error('Error deleting wilayah:', error);
     res.status(500).json({ error: 'Gagal menghapus wilayah' });
   }
 };
 
-// PATCH toggle status aktif/nonaktif
 export const toggleWilayahStatus = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = toBigIntParam(req.params.id);
+    const current = await prisma.location.findUnique({ where: { id } });
+    if (!current) return res.status(404).json({ error: 'Wilayah tidak ditemukan' });
 
-    const wilayah = await prisma.location.findUnique({
-      where: { id: toBigIntParam(id) }
+    const updated = await prisma.location.update({
+      where: { id },
+      data: { isActive: !current.isActive }
     });
-
-    if (!wilayah) {
-      return res.status(404).json({ error: 'Wilayah tidak ditemukan' });
-    }
-
-    const updatedWilayah = await prisma.location.update({
-      where: { id: toBigIntParam(id) },
-      data: { isActive: !wilayah.isActive }
-    });
-
-    res.json({
-      id: updatedWilayah.id.toString(),
-      isActive: updatedWilayah.isActive,
-      message: `Wilayah ${updatedWilayah.isActive ? 'diaktifkan' : 'dinonaktifkan'}`
-    });
-
+    res.json({ id: updated.id.toString(), isActive: updated.isActive });
   } catch (error) {
-    console.error('Error toggling wilayah:', error);
-    res.status(500).json({ error: 'Gagal mengubah status wilayah' });
+    console.error('Error toggling status:', error);
+    res.status(500).json({ error: 'Gagal mengubah status' });
   }
 };
 
-// GET semua polygon untuk peta
+export const checkLocationInWilayah = async (req: Request, res: Response) => {
+  try {
+    const { latitude, longitude } = req.body;
+    const pLat = parseOptionalFloat(latitude);
+    const pLon = parseOptionalFloat(longitude);
+
+    if (pLat === null || pLon === null) return res.status(400).json({ error: 'Koordinat diperlukan' });
+
+    const wilayahList = await prisma.location.findMany({
+      where: { locationType: 'KECAMATAN', isActive: true }
+    });
+
+    const results = wilayahList
+      .map(w => {
+        const distance = calculateDistance(pLat, pLon, w.latitude, w.longitude);
+        const radiusInKm = (w.radius || 5000) / 1000; 
+        return {
+          id: w.id.toString(),
+          name: w.name,
+          distance: parseFloat(distance.toFixed(2)),
+          isWithinRadius: distance <= radiusInKm
+        };
+      })
+      .filter(r => r.isWithinRadius);
+
+    res.json({
+      inWilayah: results.length > 0,
+      currentLocation: { latitude: pLat, longitude: pLon },
+      wilayah: results,
+      message: results.length > 0 
+        ? `Lokasi berada di dalam wilayah: ${results.map(r => r.name).join(', ')}`
+        : 'Lokasi berada di luar radius wilayah yang ditentukan'
+    });
+  } catch (error) {
+    console.error('Error checking geofence:', error);
+    res.status(500).json({ error: 'Gagal memeriksa lokasi' });
+  }
+};
+
 export const getAllPolygons = async (req: Request, res: Response) => {
   try {
     const polygons = await prisma.location.findMany({
-      where: { 
-        locationType: 'KECAMATAN',
-        isActive: true
-      },
+      where: { locationType: 'KECAMATAN', isActive: true },
       select: {
         id: true,
         name: true,
         code: true,
         latitude: true,
         longitude: true,
-        isActive: true
+        isActive: true,
+        radius: true
       }
     });
 
@@ -370,9 +335,9 @@ export const getAllPolygons = async (req: Request, res: Response) => {
       name: p.name,
       code: p.code,
       center: [Number(p.latitude), Number(p.longitude)],
+      radius: p.radius,
       isActive: p.isActive
     })));
-    
   } catch (error) {
     console.error('Error fetching polygons:', error);
     res.status(500).json({ error: 'Gagal mengambil data polygon' });

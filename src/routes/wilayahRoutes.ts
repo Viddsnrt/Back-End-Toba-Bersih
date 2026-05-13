@@ -1,19 +1,21 @@
 import { Router } from 'express';
-import { 
+import {
   getAllWilayah,
   getWilayahById,
   createWilayah,
   updateWilayah,
   deleteWilayah,
   toggleWilayahStatus,
-  getAllPolygons
+  getAllPolygons,
+  checkLocationInWilayah
 } from '../controllers/wilayahController.js';
 import { authenticateToken, authorizeRole } from '../middleware/auth.js';
 
 const router = Router();
 
-// Route publik (tanpa login) - untuk peta GIS
+// Route publik (tanpa login) - untuk peta GIS dan validasi lokasi
 router.get('/polygons', getAllPolygons);
+router.post('/check-location', checkLocationInWilayah);
 router.get('/public', getAllWilayah);
 router.get('/public/:id', getWilayahById);
 
@@ -23,7 +25,7 @@ router.use(authorizeRole(['ADMIN']));
 
 router.get('/', getAllWilayah);
 router.get('/:id', getWilayahById);
-router.post('/', createWilayah);  
+router.post('/', createWilayah);
 router.put('/:id', updateWilayah);
 router.patch('/:id/toggle', toggleWilayahStatus);
 router.delete('/:id', deleteWilayah);
