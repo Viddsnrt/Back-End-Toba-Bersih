@@ -14,7 +14,7 @@
     router.post('/',             ruteController.buatRute);           // POST /api/rute
     router.put('/:ruteId',       ruteController.updateRute);         // PUT  /api/rute/:ruteId
     router.delete('/:ruteId',    ruteController.hapusRute);          // DEL  /api/rute/:ruteId
-    router.patch('/:ruteId/toggle', ruteController.toggleStatusRute);// PAT  /api/rute/:ruteId/toggle
+    // router.patch('/:ruteId/toggle', ruteController.toggleStatusRute);// PAT  /api/rute/:ruteId/toggle
 
     // ── Waypoint CRUD ───────────────────────────────────────────
     router.post('/:ruteId/waypoint',            ruteController.tambahWaypoint);   // POST single atau bulk

@@ -1,7 +1,9 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import http from "http";
 import { Server } from "socket.io";
 
@@ -14,14 +16,9 @@ import driverRoutes from './routes/driverRoutes.js';
 import penugasanRoutes from './routes/penugasanRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import postsRoutes from './routes/postRoutes.js';
-import trackingRoutes from './routes/trackingRoutes.js';
-import aiRoutes from './routes/aiRoutes.js';
-import galleryRoutes from './routes/galleryRoutes.js';
-import usersRoutes from './routes/usersRoutes.js';
-import wilayahRoutes from './routes/wilayahRoutes.js';
-import RouteRoutes from './routes/Route.routes.js';
-import akunmasyarakatRoutes from './routes/akunmasyarakatRoutes.js';
-
+import routeRoutes from './routes/Routeroutes.js';
+import akunmanager from './routes/akunmasyarakatRoutes.js';
+import { sendEmail } from "./utils/sendEmail.js";
 dotenv.config();
 
 const app = express();
@@ -68,12 +65,7 @@ app.use('/api/laporan', laporanRoutes);
 app.use('/api/penugasan', penugasanRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/posts', postsRoutes);
-app.use('/api/tracking', trackingRoutes);
-app.use('/api/ai', aiRoutes);
-app.use('/api/gallery', galleryRoutes);
-app.use('/api/wilayah', wilayahRoutes);
-app.use('/api/rute', RouteRoutes);
-app.use('/api/users', akunmasyarakatRoutes);
+app.use('/api/rute', routeRoutes);
 
 (BigInt.prototype as any).toJSON = function () { return this.toString(); };
 
@@ -134,4 +126,14 @@ server.listen(PORT, () => {
 process.on("SIGTERM", async () => {
   await prisma.$disconnect();
   server.close(() => process.exit(0));
+});
+
+app.get("/test-email", async (req, res) => {
+  await sendEmail(
+    "ivansrt883@gmail.com",
+    "TEST EMAIL",
+    "Ini test dari sistem kamu"
+  );
+
+  res.send("Email dikirim!");
 });

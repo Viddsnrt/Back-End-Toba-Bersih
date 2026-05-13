@@ -73,16 +73,11 @@ export const getTrukAktif = async (req: Request, res: Response): Promise<any> =>
           select: { status: true, location: true, district: true }
         },
         // Rute jadwal hari ini dari DB (hasil input admin)
-        // routes: {
-        //   where: { dayOfWeek: hariIni, isActive: true },
-        //   include: { waypoints: { orderBy: { order: 'asc' } } },
-        //   take: 1
-        // }
-        routesTemplate: {
+        routes: {
           where: { dayOfWeek: hariIni, isActive: true },
-         include: { waypoints: { orderBy: { order: 'asc' } } },
-         take: 1
-         }
+          include: { waypoints: { orderBy: { order: 'asc' } } },
+          take: 1
+        }
       }
     });
 
