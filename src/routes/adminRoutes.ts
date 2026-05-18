@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, authorizeAdmin } from '../middleware/auth.js';
 import {
   addOperator,
   getSemuaSupir,
@@ -17,7 +17,11 @@ import {
   getTrukAktif,
   getRiwayatJalur,
   updateLokasiTruk,
-  validateWilayahData
+  validateWilayahData,
+  createKabid,
+  getAllKabid,
+  updateKabid,
+  deleteKabid,
 } from '../controllers/adminController.js';
 
 const router = Router();
@@ -48,5 +52,12 @@ router.patch('/laporan/:idLaporan/tugaskan', authenticateToken, tugaskanLaporan)
 router.get('/tracking/truk-aktif', authenticateToken, getTrukAktif);
 router.get('/tracking/riwayat/:truckId', authenticateToken, getRiwayatJalur);
 router.post('/tracking/update-lokasi', updateLokasiTruk); // tanpa auth, dipanggil dari Flutter
+
+
+// --- Manajemen Kepala Bidang (KABID) – hanya ADMIN ---
+router.get('/kabid', authenticateToken, authorizeAdmin, getAllKabid);
+router.post('/kabid', authenticateToken, authorizeAdmin, createKabid);
+router.put('/kabid/:id', authenticateToken, authorizeAdmin, updateKabid);
+router.delete('/kabid/:id', authenticateToken, authorizeAdmin, deleteKabid);
 
 export default router;

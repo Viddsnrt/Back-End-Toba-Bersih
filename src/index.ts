@@ -1,4 +1,4 @@
-import dotenv from "dotenv";
+import dotenv from 'dotenv';
 dotenv.config();
 
 import express from "express";
@@ -17,8 +17,11 @@ import penugasanRoutes from './routes/penugasanRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import postsRoutes from './routes/postRoutes.js';
 import routeRoutes from './routes/Routeroutes.js';
+import wilayahRoutes from './routes/wilayahRoutes.js';
+import usersRoutes from './routes/usersRoutes.js';
 import akunmanager from './routes/akunmasyarakatRoutes.js';
 import { sendEmail } from "./utils/sendEmail.js";
+import kabidRoutes from './routes/kabidRoutes.js';
 dotenv.config();
 
 const app = express();
@@ -56,7 +59,10 @@ io.on("connection", (socket) => {
   });
 });
 
-app.use(express.json());
+// ================= BODY PARSER MIDDLEWARE =================
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/upload', uploadRoutes);
@@ -66,6 +72,9 @@ app.use('/api/penugasan', penugasanRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/posts', postsRoutes);
 app.use('/api/rute', routeRoutes);
+app.use('/api/wilayah', wilayahRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/kabid', kabidRoutes);
 
 (BigInt.prototype as any).toJSON = function () { return this.toString(); };
 
