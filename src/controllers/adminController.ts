@@ -2,6 +2,283 @@ import type { Request, Response } from 'express';
 import { prisma } from '../config/db.js';
 import * as bcrypt from 'bcrypt';
 
+// ═════════════════════════════════════════════════════════════
+// BUAT AKUN KABID
+// POST /api/admin/kabid
+// ═════════════════════════════════════════════════════════════
+export const createKabid = async (
+  req: Request,
+  res: Response
+): Promise<any> => {
+  try {
+    // Debug logging
+    console.log('📨 createKabid - Request body:', req.body);
+    console.log('📨 createKabid - Request headers:', { 
+      contentType: req.headers['content-type'],
+      hasBody: !!req.body,
+      bodyKeys: req.body ? Object.keys(req.body) : []
+    });
+
+    const {
+      email,
+      fullName,
+      password,
+      phoneNumber
+    } = req.body || {};
+
+    // Validasi
+    if (!email || !fullName || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email, nama lengkap, dan password wajib diisi',
+        received: { email, fullName, password }
+      });
+    }
+
+    // Cek email
+    const existing = await prisma.user.findUnique({
+      where: { email }
+    });
+
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: 'Email sudah terdaftar'
+      });
+    }
+
+    // Hash password
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Buat akun KABID
+    const newKabid = await prisma.user.create({
+      data: {
+        email,
+        fullName,
+        passwordHash,
+        phoneNumber: phoneNumber || null,
+        role: 'KABID',
+        isActive: true
+      },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        phoneNumber: true,
+        role: true,
+        isActive: true,
+        createdAt: true
+      }
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Akun Kepala Bidang berhasil dibuat',
+      data: {
+        ...newKabid,
+        id: newKabid.id.toString()
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ createKabid:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal membuat akun Kepala Bidang',
+      error: error.message
+    });
+  }
+};
+
+// ═════════════════════════════════════════════════════════════
+// GET ALL KABID
+// GET /api/admin/kabid
+// ═════════════════════════════════════════════════════════════
+export const getAllKabid = async (
+  _req: Request,
+  res: Response
+): Promise<any> => {
+  try {
+    const kabidList = await prisma.user.findMany({
+      where: {
+        role: 'KABID'
+      },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        phoneNumber: true,
+        isActive: true,
+        createdAt: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    const formatted = kabidList.map((item) => ({
+      ...item,
+      id: item.id.toString()
+    }));
+
+    return res.json({
+      success: true,
+      data: formatted
+    });
+
+  } catch (error: any) {
+    console.error('❌ getAllKabid:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal mengambil daftar Kepala Bidang'
+    });
+  }
+};
+
+// ═════════════════════════════════════════════════════════════
+// UPDATE KABID
+// PUT /api/admin/kabid/:id
+// ═════════════════════════════════════════════════════════════
+export const updateKabid = async (
+  req: Request,
+  res: Response
+): Promise<any> => {
+  try {
+    const { id } = req.params;
+
+    const {
+      fullName,
+      phoneNumber,
+      isActive,
+      newPassword
+    } = req.body;
+
+    // Cari akun
+    const kabid = await prisma.user.findFirst({
+      where: {
+        id: BigInt(id),
+        role: 'KABID'
+      }
+    });
+
+    if (!kabid) {
+      return res.status(404).json({
+        success: false,
+        message: 'Akun Kepala Bidang tidak ditemukan'
+      });
+    }
+
+    const updateData: any = {};
+
+    if (fullName !== undefined) {
+      updateData.fullName = fullName;
+    }
+
+    if (phoneNumber !== undefined) {
+      updateData.phoneNumber = phoneNumber;
+    }
+
+    if (isActive !== undefined) {
+      updateData.isActive = isActive;
+    }
+
+    // Reset password
+    if (newPassword) {
+      updateData.passwordHash = await bcrypt.hash(
+        newPassword,
+        10
+      );
+    }
+
+    // Update data
+    const updated = await prisma.user.update({
+      where: {
+        id: BigInt(id)
+      },
+      data: updateData,
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        phoneNumber: true,
+        isActive: true,
+        role: true
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Akun Kepala Bidang berhasil diperbarui',
+      data: {
+        ...updated,
+        id: updated.id.toString()
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ updateKabid:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal memperbarui akun Kepala Bidang'
+    });
+  }
+};
+
+// ═════════════════════════════════════════════════════════════
+// DELETE / NONAKTIFKAN KABID
+// DELETE /api/admin/kabid/:id
+// ═════════════════════════════════════════════════════════════
+export const deleteKabid = async (
+  req: Request,
+  res: Response
+): Promise<any> => {
+  try {
+    const { id } = req.params;
+
+    // Cari akun
+    const kabid = await prisma.user.findFirst({
+      where: {
+        id: BigInt(id),
+        role: 'KABID'
+      }
+    });
+
+    if (!kabid) {
+      return res.status(404).json({
+        success: false,
+        message: 'Akun Kepala Bidang tidak ditemukan'
+      });
+    }
+
+    // Soft delete
+    await prisma.user.update({
+      where: {
+        id: BigInt(id)
+      },
+      data: {
+        isActive: false
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Akun Kepala Bidang berhasil dinonaktifkan'
+    });
+
+  } catch (error: any) {
+    console.error('❌ deleteKabid:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal menonaktifkan akun Kepala Bidang'
+    });
+  }
+};
+
+
 // ==========================================
 // BAGIAN 1: MANAJEMEN SUPIR (OPERATOR)
 // ==========================================
