@@ -325,15 +325,19 @@ export const exportRekapLaporan = async (req: Request, res: Response) => {
 
       const aduan = await prisma.report.findMany({
         where,
-        include: { user: { select: { fullName: true } } },
+        include: { 
+          user: { select: { fullName: true } },
+          location: { select: { name: true } }
+        },
         orderBy: { createdAt: 'desc' },
       });
       data = aduan.map((a) => ({
         'ID Laporan':    a.id.toString(),
-        'Pelapor':       a.user?.fullName ?? '-',
+        'Pelapor':       a.user?.fullName ?? a.pelapor ?? '-',
+        'Email Pelapor': a.email ?? '-',
         'Jenis Sampah':  a.jenisSampah   ?? '-',
-        'Deskripsi':     a.description,
-        'Kecamatan':     a.district       ?? '-',
+        'Deskripsi':     a.description ?? '-',
+        'Lokasi':        a.location?.name ?? '-',
         'Status':        a.status,
         'Waktu Lapor':   new Date(a.createdAt).toLocaleString('id-ID'),
         'Waktu Selesai': a.status === 'SELESAI' ? new Date(a.updatedAt).toLocaleString('id-ID') : '-',
@@ -383,6 +387,58 @@ export const exportRekapLaporan = async (req: Request, res: Response) => {
         'Populasi':         w.population  ?? '-',
       }));
       filename = `rekap_wilayah_${new Date().toISOString().slice(0, 10)}`;
+    }
+
+    // ── d) Supir (Driver) ──
+    else if (type === 'supir') {
+      const userWhere: any = { role: 'OPERATOR' };
+      if (startDate && endDate) {
+        userWhere.createdAt = { gte: new Date(startDate), lte: new Date(endDate) };
+      }
+      const supir = await prisma.user.findMany({
+        where: userWhere,
+        include: {
+          tasks: {
+            where: startDate && endDate ? { scheduledAt: { gte: new Date(startDate), lte: new Date(endDate) } } : {},
+          },
+        },
+        orderBy: { fullName: 'asc' },
+      });
+      data = supir.map((s) => ({
+        'Nama Supir':      s.fullName ?? '-',
+        'Email':           s.email ?? '-',
+        'No. Telepon':     s.phoneNumber ?? '-',
+        'Status':          s.isActive ? 'Aktif' : 'Tidak Aktif',
+        'Total Tugas':     s.tasks.length,
+        'Tugas Selesai':   s.tasks.filter((t) => t.status === 'SELESAI').length,
+        'Waktu Bergabung': s.createdAt ? new Date(s.createdAt).toLocaleDateString('id-ID') : '-',
+      }));
+      filename = `rekap_supir_${new Date().toISOString().slice(0, 10)}`;
+    }
+
+    // ── e) Rute (Route) ──
+    else if (type === 'rute') {
+      const ruteWhere: any = {};
+      if (startDate && endDate) {
+        ruteWhere.createdAt = { gte: new Date(startDate), lte: new Date(endDate) };
+      }
+      const rute = await prisma.routeTemplate.findMany({
+        where: ruteWhere,
+        include: {
+          truck: { select: { plateNumber: true } },
+          waypoints: true,
+        },
+        orderBy: { name: 'asc' },
+      });
+      data = rute.map((r) => ({
+        'Nama Rute':       r.name,
+        'Hari':            r.dayOfWeek ?? '-',
+        'Plat Truk':       r.truck?.plateNumber ?? '-',
+        'Status':          r.isActive ? 'Aktif' : 'Tidak Aktif',
+        'Total Waypoint':  r.waypoints?.length ?? 0,
+        'Waktu Dibuat':    r.createdAt ? new Date(r.createdAt).toLocaleDateString('id-ID') : '-',
+      }));
+      filename = `rekap_rute_${new Date().toISOString().slice(0, 10)}`;
     } else {
       return res.status(400).json({ success: false, message: 'Jenis laporan tidak valid' });
     }
