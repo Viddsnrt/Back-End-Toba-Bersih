@@ -1,20 +1,41 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../config/db.js';
 
+// =============================================
+// HELPER — snake_case DB → camelCase response
+// Dipanggil di SEMUA endpoint
+// =============================================
+function normalizeEdukasi(item: any) {
+  return {
+    id:        item.id,
+    judul:     item.judul,
+    deskripsi: item.deskripsi,
+    mediaUrl:  item.media_url,    // ✅ snake → camel
+    mediaType: item.media_type,   // ✅ snake → camel
+    createdAt: item.created_at,
+    updatedAt: item.updated_at,
+  };
+}
 
+// =============================================
+// GET ALL  ← perbaikan utama: sekarang dinormalisasi
+// =============================================
 export const getEdukasi = async (_req: Request, res: Response) => {
-
   try {
-    const edukasi = await prisma.edukasi.findMany({
-      orderBy: { createdAt: 'desc' },
+    const list = await prisma.edukasi.findMany({
+      orderBy: { created_at: 'desc' },
     });
-    res.json(edukasi);
+    // ✅ sebelumnya mengembalikan raw data, sekarang di-normalize
+    return res.json(list.map(normalizeEdukasi));
   } catch (error) {
     console.error('Error getEdukasi:', error);
-    res.status(500).json({ message: 'Gagal mengambil data edukasi' });
+    return res.status(500).json({ message: 'Gagal mengambil data edukasi' });
   }
 };
 
+// =============================================
+// GET BY ID
+// =============================================
 export const getEdukasiById = async (req: Request<{ id: string }>, res: Response) => {
   try {
     const id = Number(req.params.id);
@@ -23,62 +44,56 @@ export const getEdukasiById = async (req: Request<{ id: string }>, res: Response
     const edukasi = await prisma.edukasi.findUnique({ where: { id } });
     if (!edukasi) return res.status(404).json({ message: 'Edukasi tidak ditemukan' });
 
-    res.json(edukasi);
+    return res.json(normalizeEdukasi(edukasi));
   } catch (error) {
     console.error('Error getEdukasiById:', error);
-    res.status(500).json({ message: 'Gagal mengambil data edukasi' });
+    return res.status(500).json({ message: 'Gagal mengambil data edukasi' });
   }
 };
 
+// =============================================
+// CREATE
+// =============================================
 export const createEdukasi = async (req: Request, res: Response) => {
   try {
-    // debug supaya jelas kenapa request gagal
-    // (tidak membuat file baru)
-    console.log('[edukasi] create body:', req.body);
-
     const { judul, deskripsi, mediaUrl, mediaType } = req.body as {
       judul?: string;
       deskripsi?: string | null;
       mediaUrl?: string;
-      mediaType?: 'IMAGE' | 'VIDEO' | string;
+      mediaType?: string;
     };
 
-    // toleransi: terkadang frontend bisa mengirim mediaType berisi lowercase/atau kosong-spaces
-    const mediaUrlFinal = typeof mediaUrl === 'string' ? mediaUrl.trim() : mediaUrl;
-    const mediaTypeRaw = mediaType != null ? String(mediaType).trim() : mediaType;
+    if (!judul?.trim())  return res.status(400).json({ message: 'Judul wajib diisi' });
+    if (!mediaUrl)       return res.status(400).json({ message: 'mediaUrl wajib diisi' });
+    if (!mediaType)      return res.status(400).json({ message: 'mediaType wajib diisi' });
 
-    if (!judul?.trim()) return res.status(400).json({ message: 'Judul wajib diisi' });
-    if (!mediaUrl) return res.status(400).json({ message: 'mediaUrl wajib diisi' });
-    if (!mediaType) return res.status(400).json({ message: 'mediaType wajib diisi' });
-
-    const normalizedMediaType = String(mediaType).toUpperCase();
-    if (normalizedMediaType !== 'IMAGE' && normalizedMediaType !== 'VIDEO') {
+    const normalizedType = String(mediaType).toUpperCase();
+    if (normalizedType !== 'IMAGE' && normalizedType !== 'VIDEO') {
       return res.status(400).json({ message: 'mediaType harus IMAGE atau VIDEO' });
     }
 
-    // (important) helper utk konsistensi di create/update
-    const mediaTypeFinal = normalizedMediaType as 'IMAGE' | 'VIDEO';
-
     const created = await prisma.edukasi.create({
       data: {
-        judul: judul.trim(),
-        deskripsi: deskripsi ?? null,
-        mediaUrl,
-        mediaType: mediaTypeFinal,
+        judul:      judul.trim(),
+        deskripsi:  deskripsi ?? null,
+        media_url:  mediaUrl,
+        media_type: normalizedType as 'IMAGE' | 'VIDEO',
+        updated_at: new Date(),
       },
     });
 
-    res.status(201).json(created);
+    return res.status(201).json(normalizeEdukasi(created));
   } catch (error) {
     console.error('Error createEdukasi:', error);
-    res.status(500).json({ message: 'Gagal membuat edukasi', error: (error as any)?.message || error, stack: (error as any)?.stack || null });
+    return res.status(500).json({ message: 'Gagal membuat edukasi', error: (error as any)?.message });
   }
 };
 
+// =============================================
+// UPDATE
+// =============================================
 export const updateEdukasi = async (req: Request<{ id: string }>, res: Response) => {
   try {
-    console.log('[edukasi] update body:', req.body);
-
     const id = Number(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ message: 'ID tidak valid' });
 
@@ -86,46 +101,48 @@ export const updateEdukasi = async (req: Request<{ id: string }>, res: Response)
       judul?: string;
       deskripsi?: string | null;
       mediaUrl?: string;
-      mediaType?: 'IMAGE' | 'VIDEO';
+      mediaType?: string;
     };
 
-    if (!judul?.trim()) return res.status(400).json({ message: 'Judul wajib diisi' });
-    if (!mediaUrl) return res.status(400).json({ message: 'mediaUrl wajib diisi' });
-    if (!mediaType) return res.status(400).json({ message: 'mediaType wajib diisi' });
+    if (!judul?.trim())  return res.status(400).json({ message: 'Judul wajib diisi' });
+    if (!mediaUrl)       return res.status(400).json({ message: 'mediaUrl wajib diisi' });
+    if (!mediaType)      return res.status(400).json({ message: 'mediaType wajib diisi' });
 
-    const normalizedMediaType = String(mediaType).toUpperCase();
-    if (normalizedMediaType !== 'IMAGE' && normalizedMediaType !== 'VIDEO') {
+    const normalizedType = String(mediaType).toUpperCase();
+    if (normalizedType !== 'IMAGE' && normalizedType !== 'VIDEO') {
       return res.status(400).json({ message: 'mediaType harus IMAGE atau VIDEO' });
     }
 
     const updated = await prisma.edukasi.update({
       where: { id },
       data: {
-        judul: judul.trim(),
-        deskripsi: deskripsi ?? null,
-        mediaUrl,
-        mediaType: normalizedMediaType as 'IMAGE' | 'VIDEO',
+        judul:      judul.trim(),
+        deskripsi:  deskripsi ?? null,
+        media_url:  mediaUrl,
+        media_type: normalizedType as 'IMAGE' | 'VIDEO',
+        updated_at: new Date(),
       },
     });
 
-    res.json(updated);
+    return res.json(normalizeEdukasi(updated));
   } catch (error) {
     console.error('Error updateEdukasi:', error);
-    res.status(500).json({ message: 'Gagal memperbarui edukasi', error: (error as any)?.message || error });
+    return res.status(500).json({ message: 'Gagal memperbarui edukasi', error: (error as any)?.message });
   }
 };
 
+// =============================================
+// DELETE
+// =============================================
 export const deleteEdukasi = async (req: Request<{ id: string }>, res: Response) => {
   try {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ message: 'ID tidak valid' });
 
     await prisma.edukasi.delete({ where: { id } });
-    res.json({ message: 'Edukasi berhasil dihapus' });
+    return res.json({ message: 'Edukasi berhasil dihapus' });
   } catch (error) {
     console.error('Error deleteEdukasi:', error);
-    res.status(500).json({ message: 'Gagal menghapus edukasi' });
+    return res.status(500).json({ message: 'Gagal menghapus edukasi' });
   }
 };
-
-

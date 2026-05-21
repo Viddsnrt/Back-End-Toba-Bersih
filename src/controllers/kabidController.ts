@@ -156,10 +156,19 @@ export const getMonitoringArmada = async (req: Request, res: Response) => {
 export const getStatistikOperasional = async (req: Request, res: Response) => {
   try {
     // Laporan per wilayah
-    const laporanPerWilayah = await prisma.report.groupBy({
-      by: ['district'],
-      _count: { id: true },
-    });
+const laporanPerWilayah = await prisma.location.findMany({
+  where: {
+    locationType: 'KECAMATAN',
+  },
+  select: {
+    name: true,
+    _count: {
+      select: {
+        reports: true,
+      },
+    },
+  },
+});
 
     // Kategori terbanyak
     const kategoriTerbanyak = await prisma.report.groupBy({
