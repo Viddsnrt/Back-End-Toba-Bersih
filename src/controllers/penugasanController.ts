@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../config/db.js';
+import { sendPushNotification } from '../config/firebase.js';
 
 // Buat Tugas Rutin
 export const createRutin = async (req: Request, res: Response): Promise<any> => {
@@ -60,7 +61,7 @@ export const createAduan = async (req: Request, res: Response): Promise<any> => 
 
       // Ambil latitude & longitude dari laporan warga untuk diteruskan ke HP supir!
       reportData = await prisma.report.findUnique({
-         where: { id: BigInt(reportId) }
+        where: { id: BigInt(reportId) }
       });
     }
 
@@ -169,26 +170,61 @@ export const updateTaskStatus = async (req: Request, res: Response): Promise<any
   }
 
   try {
-    // 1. Update status tugas (Task)
+    // 1. Standarisasi input status ke HURUF BESAR agar selalu cocok dengan enum Prisma
+    const statusUpperCase = status.toUpperCase();
+
+    // 2. Update status tugas (Task)
     const updatedTask = await prisma.task.update({
       where: { id: BigInt(id) },
-      data: { status }
+      data: { status: statusUpperCase }
     });
 
-    // 2. Jika tugas ADUAN dan SELESAI, update juga Laporan Warganya menjadi SELESAI
-    if (updatedTask.reportId && status === 'SELESAI') {
-      await prisma.report.update({
+    console.log(`[Penugasan] Status tugas ${updatedTask.taskNumber} diubah menjadi: ${statusUpperCase}`);
+
+    // 3. Jika tugas ADUAN dan SELESAI, eksekusi pembaruan laporan dan notifikasi
+    if (updatedTask.reportId && statusUpperCase === 'SELESAI') {
+      
+      console.log(`[Penugasan] Mengambil data pelapor untuk laporan ID: ${updatedTask.reportId}`);
+      
+      // Ambil data laporan beserta data user (pelapor)
+      const updatedReport = await prisma.report.update({
         where: { id: updatedTask.reportId },
-        data: { status: 'SELESAI' }
+        data: { status: 'SELESAI' },
+        include: { user: true } // Mengambil data relasi User
       });
 
-      // Tembak Socket.io agar Web Admin langsung refresh secara real-time
+      // Tembak Socket.io ke Web Admin
       const io = req.app.get('io');
       if (io) {
         io.emit('status_laporan_berubah', {
           reportId: updatedTask.reportId.toString(),
           newStatus: 'SELESAI'
         });
+        console.log(`[Socket.io] Sinyal perubahan status laporan dikirim ke Admin Web.`);
+      }
+
+      // 🔥 TEMBAK PUSH NOTIFICATION KE HP WARGA
+      if (updatedReport.user && updatedReport.user.fcmToken) {
+        console.log(`[Firebase] Mencoba mengirim notifikasi ke token: ${updatedReport.user.fcmToken.substring(0,10)}...`);
+        await sendPushNotification(
+          updatedReport.user.fcmToken,
+          "Laporan Selesai! 🎉",
+          "Tumpukan sampah yang kamu laporkan sudah berhasil diangkut oleh petugas. Terima kasih atas partisipasimu!"
+        );
+      } else {
+        console.log(`[Firebase] GAGAL KIRIM: Pelapor tidak memiliki fcmToken di database.`);
+      }
+
+      // 🔥 SIMPAN KE DATABASE AGAR BISA DIBACA DI APLIKASI
+      if (updatedReport.userId) {
+        await prisma.notification.create({
+          data: {
+            userId: updatedReport.userId,
+            title: "Laporan Selesai! 🎉",
+            message: "Tumpukan sampah yang kamu laporkan sudah berhasil diangkut oleh petugas. Terima kasih atas partisipasimu!"
+          }
+        });
+        console.log(`[Database] Notifikasi berhasil disimpan ke riwayat warga.`);
       }
     }
 
@@ -207,5 +243,33 @@ export const updateTaskStatus = async (req: Request, res: Response): Promise<any
   } catch (error: any) {
     console.error("ERROR UPDATE TASK STATUS:", error);
     return res.status(500).json({ success: false, message: "Gagal memperbarui status tugas" });
+  }
+};
+
+// 🔥 FUNGSI BARU: Mengambil riwayat notifikasi milik seorang User
+export const getNotifikasiUser = async (req: Request, res: Response): Promise<any> => {
+  const { userId } = req.params;
+
+  if (!userId || isNaN(Number(userId))) {
+    return res.status(400).json({ success: false, message: "ID User tidak valid" });
+  }
+
+  try {
+    const notifications = await prisma.notification.findMany({
+      where: { userId: BigInt(userId) },
+      orderBy: { createdAt: 'desc' } // Urutkan dari yang terbaru
+    });
+    
+    // Konversi BigInt ke String agar tidak error di Flutter
+    const formatted = notifications.map(n => ({
+      ...n,
+      id: n.id.toString(),
+      userId: n.userId.toString()
+    }));
+
+    return res.json({ success: true, data: formatted });
+  } catch (error) {
+    console.error("ERROR GET NOTIFIKASI:", error);
+    return res.status(500).json({ success: false, message: "Gagal mengambil notifikasi" });
   }
 };

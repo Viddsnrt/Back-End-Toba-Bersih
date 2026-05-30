@@ -21,6 +21,7 @@ model User {
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at")
   isActive      Boolean        @default(true)
+  fcmToken      String?        @map("fcm_token")
   notifications Notification[]
   posts         Post[]
   reports       Report[]
@@ -69,6 +70,8 @@ model Report {
   status        ReportStatus              @default(PENDING)
   createdAt     DateTime                  @default(now()) @map("created_at")
   updatedAt     DateTime                  @default(now()) @map("updated_at")
+  email         String?
+  pelapor       String?
   location      Location?                 @relation(fields: [locationId], references: [id])
   user          User?                     @relation(fields: [userId], references: [id])
   task          Task?
@@ -164,7 +167,6 @@ model Volume {
   @@map("volumes")
 }
 
-
 model Post {
   id          Int      @id @default(autoincrement())
   title       String
@@ -227,9 +229,10 @@ model Task {
   createdAt   DateTime    @default(now()) @map("created_at")
   updatedAt   DateTime    @updatedAt @map("updated_at")
   notes       String?
+  pelapor     String?
   photos      TaskPhoto[]
   assigner    User?       @relation("TaskAssigner", fields: [assignerId], references: [id])
-  driver      User?        @relation("TaskDriver", fields: [driverId], references: [id])
+  driver      User?       @relation("TaskDriver", fields: [driverId], references: [id])
   report      Report?     @relation(fields: [reportId], references: [id])
   truck       Truck?      @relation(fields: [truckId], references: [id])
 
@@ -266,10 +269,21 @@ model gallery_photos {
   gallery_albums gallery_albums @relation(fields: [album_id], references: [id], onDelete: Cascade, map: "GalleryPhoto_album_id_fkey")
 }
 
+model edukasi {
+  id         Int       @id @default(autoincrement())
+  judul      String
+  deskripsi  String?
+  media_url  String
+  media_type MediaType
+  created_at DateTime  @default(now())
+  updated_at DateTime
+}
+
 enum Role {
   WARGA
   OPERATOR
   ADMIN
+  KABID
 }
 
 enum ReportStatus {
@@ -305,4 +319,9 @@ enum TaskStatus {
   TIBA
   BEKERJA
   SELESAI
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
 }

@@ -3,10 +3,9 @@ import { prisma } from '../config/db.js';
 import * as bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
-
-
 export const login = async (req: Request, res: Response): Promise<any> => {
-  const { email, password } = req.body;
+  // 🔥 TAMBAHAN: Tangkap fcmToken dari request body
+  const { email, password, fcmToken } = req.body;
 
   try {
     console.log(`\n➡️ Seseorang mencoba login dengan email: ${email}`);
@@ -32,6 +31,15 @@ export const login = async (req: Request, res: Response): Promise<any> => {
     }
 
     console.log(`✅ BERHASIL: ${user.fullName} login sebagai ${user.role}`);
+
+    // 🔥 FITUR BARU: Simpan FCM Token ke database jika dikirim dari HP
+    if (fcmToken) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { fcmToken: fcmToken }
+      });
+      console.log(`📱 FCM Token berhasil disimpan untuk ${user.fullName}`);
+    }
 
     // ✅ Generate JWT Token dengan role
     const token = jwt.sign(

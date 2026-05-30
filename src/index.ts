@@ -28,9 +28,10 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 
-// 1. SETUP CORS YANG BENAR (Pindahkan ke sini, sebelum app.use rute)
+// 1. SETUP CORS YANG BENAR
 app.use(cors({
-  origin: ['http://localhost:3000', 'https://confoundedly-granitic-janetta.ngrok-free.dev'], 
+  // 🔥 PERBAIKAN: Gunakan 'true' agar backend menerima request dari PORT berapapun (termasuk Flutter Web yang port-nya acak)
+  origin: true, 
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
   credentials: true
