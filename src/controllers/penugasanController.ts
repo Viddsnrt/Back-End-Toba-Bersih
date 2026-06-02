@@ -1,11 +1,10 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../config/db.js';
-import { sendPushNotification } from '../config/firebase.js';
 
 // Buat Tugas Rutin
 export const createRutin = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { driverId, truckId, scheduledAt, location, notes, latitude, longitude } = req.body;
+    const { driverId, truckId, scheduledAt, location, notes } = req.body;
 
     const dateStr = new Date().toISOString().slice(0,10).replace(/-/g, '');
     const taskNumber = `RUTIN-${dateStr}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -15,24 +14,14 @@ export const createRutin = async (req: Request, res: Response): Promise<any> => 
         taskNumber,
         type: 'RUTIN',
         location,
-        latitude: latitude ? parseFloat(latitude) : null,
-        longitude: longitude ? parseFloat(longitude) : null,
         scheduledAt: new Date(scheduledAt),
         notes: notes || null,
-        driverId: driverId ? BigInt(driverId) : null,
+        driverId: BigInt(driverId),
         truckId: truckId ? BigInt(truckId) : null,
       }
     });
 
-    return res.status(201).json({ 
-      success: true, 
-      data: { 
-        ...newTask, 
-        id: newTask.id.toString(),
-        driverId: newTask.driverId?.toString() || null,
-        truckId: newTask.truckId?.toString() || null
-      } 
-    });
+    return res.status(201).json({ success: true, data: { ...newTask, id: newTask.id.toString() } });
   } catch (error: any) {
     console.error("ERROR CREATE RUTIN:", error);
     return res.status(500).json({ success: false, message: error.message });
@@ -45,9 +34,8 @@ export const createAduan = async (req: Request, res: Response): Promise<any> => 
     const { reportId, driverId, truckId, scheduledAt, location, district, description, notes } = req.body;
 
     // 1. VALIDASI: Cek apakah laporan ini sudah punya penugasan
-    let reportData = null;
-    
     if (reportId) {
+      // Cek apakah sudah ada penugasan
       const existingTask = await prisma.task.findFirst({
         where: { reportId: BigInt(reportId) }
       });
@@ -58,17 +46,11 @@ export const createAduan = async (req: Request, res: Response): Promise<any> => 
           message: "Aduan ini sudah pernah dibuatkan penugasan sebelumnya." 
         });
       }
-
-      // Ambil latitude & longitude dari laporan warga untuk diteruskan ke HP supir!
-      reportData = await prisma.report.findUnique({
-        where: { id: BigInt(reportId) }
-      });
     }
 
     const dateStr = new Date().toISOString().slice(0,10).replace(/-/g, '');
     const taskNumber = `ADUAN-${dateStr}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    // 2. TRANSAKSI: Gunakan $transaction agar Create Task & Update Report sukses bersamaan
     const result = await prisma.$transaction(async (tx) => {
       const newTask = await tx.task.create({
         data: {
@@ -82,9 +64,6 @@ export const createAduan = async (req: Request, res: Response): Promise<any> => 
           driverId: driverId ? BigInt(driverId) : null,
           truckId: truckId ? BigInt(truckId) : null,
           reportId: reportId ? BigInt(reportId) : null,
-          // Salin koordinat dari laporan warga agar navigasi supir akurat
-          latitude: reportData?.latitude || null,
-          longitude: reportData?.longitude || null,
         }
       });
 
@@ -111,7 +90,6 @@ export const createAduan = async (req: Request, res: Response): Promise<any> => 
 
   } catch (error: any) {
     console.error("ERROR CREATE ADUAN:", error);
-    // Cek jika error datang dari Prisma unique constraint (P2002)
     if (error.code === 'P2002') {
       return res.status(400).json({ 
         success: false, 
@@ -136,7 +114,7 @@ export const getSemuaPenugasan = async (req: Request, res: Response): Promise<an
       include: {
         driver: { select: { id: true, fullName: true } },
         truck: { select: { id: true, plateNumber: true } },
-        report: { select: { id: true, description: true } }
+        report: { select: { id: true, description: true, pelapor: true } }
       },
       orderBy: { scheduledAt: 'desc' }
     });
@@ -145,17 +123,16 @@ export const getSemuaPenugasan = async (req: Request, res: Response): Promise<an
     const formattedTasks = tasks.map((task: any) => ({
       ...task,
       id: task.id.toString(),
-      driverId: task.driverId ? task.driverId.toString() : null,
+      driverId: task.driverId.toString(),
       truckId: task.truckId ? task.truckId.toString() : null,
       reportId: task.reportId ? task.reportId.toString() : null,
-      driver: task.driver ? { ...task.driver, id: task.driver.id.toString() } : null,
+      driver: { ...task.driver, id: task.driver.id.toString() },
       truck: task.truck ? { ...task.truck, id: task.truck.id.toString() } : null,
       report: task.report ? { ...task.report, id: task.report.id.toString() } : null,
     }));
 
     return res.status(200).json({ success: true, data: formattedTasks });
   } catch (error: any) {
-    console.error("ERROR GET PENUGASAN:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

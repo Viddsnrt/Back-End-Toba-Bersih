@@ -4,17 +4,40 @@
 
     const router = Router();
 
+    // ── GET Rute (untuk monitoring) - KABID dan ADMIN bisa akses ──
+    router.get('/', authenticateToken, (req, res, next) => {
+      const user = (req as any).user;
+      // Allow ADMIN and KABID to GET rute data for monitoring
+      if (!user || (user.role !== 'ADMIN' && user.role !== 'KABID')) {
+        return res.status(403).json({
+          success: false,
+          error: 'Akses ditolak'
+        });
+      }
+      next();
+    }, ruteController.getSemuaRute);
+
+    router.get('/:ruteId', authenticateToken, (req, res, next) => {
+      const user = (req as any).user;
+      // Allow ADMIN and KABID to GET rute data for monitoring
+      if (!user || (user.role !== 'ADMIN' && user.role !== 'KABID')) {
+        return res.status(403).json({
+          success: false,
+          error: 'Akses ditolak'
+        });
+      }
+      next();
+    }, ruteController.getDetailRute);
+
     // Semua route manajemen rute hanya untuk ADMIN
     router.use(authenticateToken);
     router.use(authorizeRole(['ADMIN']));
 
     // ── RouteTemplate CRUD ──────────────────────────────────────
-    router.get('/',              ruteController.getSemuaRute);       // GET  /api/rute
-    router.get('/:ruteId',       ruteController.getDetailRute);      // GET  /api/rute/:ruteId
     router.post('/',             ruteController.buatRute);           // POST /api/rute
     router.put('/:ruteId',       ruteController.updateRute);         // PUT  /api/rute/:ruteId
     router.delete('/:ruteId',    ruteController.hapusRute);          // DEL  /api/rute/:ruteId
-    router.patch('/:ruteId/toggle', ruteController.toggleStatusRute);// PAT  /api/rute/:ruteId/toggle
+    // router.patch('/:ruteId/toggle', ruteController.toggleStatusRute);// PAT  /api/rute/:ruteId/toggle
 
     // ── Waypoint CRUD ───────────────────────────────────────────
     router.post('/:ruteId/waypoint',            ruteController.tambahWaypoint);   // POST single atau bulk

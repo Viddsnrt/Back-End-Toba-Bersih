@@ -17,7 +17,7 @@ export const uploadImage = async (req: Request, res: Response) => {
     const file = req.file;
     const fileName = `${Date.now()}_${file.originalname.replace(/\s+/g, '_')}`;
 
-    const { data, error } = await supabase.storage
+    const { error } = await supabase.storage
       .from(BUCKET_NAME)
       .upload(fileName, file.buffer, {
         contentType: file.mimetype,
@@ -28,6 +28,7 @@ export const uploadImage = async (req: Request, res: Response) => {
       console.error('Supabase upload error:', error);
       return res.status(500).json({ message: 'Gagal upload ke storage', error: error.message });
     }
+
 
     const { data: urlData } = supabase.storage
       .from(BUCKET_NAME)

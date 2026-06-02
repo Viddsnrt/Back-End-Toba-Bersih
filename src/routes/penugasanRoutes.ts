@@ -1,15 +1,8 @@
 import { Router } from 'express';
-import { 
-  createRutin, 
-  createAduan, 
-  getSemuaPenugasan, 
-  updateTaskStatus,
-  getNotifikasiUser // 🔥 1. WAJIB IMPORT FUNGSI BARU INI DI SINI
-} from '../controllers/penugasanController.js';
+import { createRutin, createAduan, getSemuaPenugasan } from '../controllers/penugasanController.js';
 
 const router = Router();
 
-router.post('/rutin', createRutin);
 router.post('/aduan', createAduan);
 router.get('/', getSemuaPenugasan);
 

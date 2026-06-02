@@ -10,16 +10,20 @@
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
-    "@supabase/supabase-js": "^2.95.3",
+    "@supabase/supabase-js": "^2.106.1",
     "axios": "^1.13.5",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
-    "firebase-admin": "^13.10.0",
     "jsonwebtoken": "^9.0.3",
-    "multer": "^2.0.2",
-    "socket.io": "^4.8.3"
+    "multer": "^2.1.1",
+    "node-fetch": "^3.3.2",
+    "nodemailer": "^8.0.7",
+    "pdfkit": "^0.18.0",
+    "socket.io": "^4.8.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
@@ -27,11 +31,15 @@
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.1.0",
-    "@types/node": "^25.6.0",
+    "@types/node": "^25.9.1",
+    "@types/node-fetch": "^2.6.13",
+    "@types/nodemailer": "^8.0.0",
+    "@types/pdfkit": "^0.17.6",
+    "@types/xlsx": "^0.0.35",
     "nodemon": "^3.1.11",
     "prisma": "^5.22.0",
     "ts-node": "^10.9.2",
-    "tsx": "^4.19.2",
+    "tsx": "^4.22.3",
     "typescript": "^5.9.3"
   },
   "prisma": {

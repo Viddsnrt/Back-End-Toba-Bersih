@@ -1,27 +1,24 @@
 import type { Request, Response } from 'express';
 import { prisma, supabase } from '../config/db.js';
 
-// GET /api/laporan (Untuk ditampilkan di Web Admin)
+
 export const getLaporan = async (req: Request, res: Response): Promise<any> => {
   try {
     const data = await prisma.report.findMany({
-      orderBy: { createdAt: 'desc' },
+      orderBy: {
+        createdAt: "desc",
+      },
       include: {
-        user: { select: { fullName: true, phoneNumber: true } }, 
-        location: true
-      }
+        user: {
+          select: {
+            fullName: true,
+            phoneNumber: true,
+          },
+        },
+        location: true,
+      },
     });
-
-    // 🔥 PERBAIKAN UTAMA: Wajib konversi BigInt ke String agar Web Admin tidak crash!
-    const formattedData = data.map((item: any) => ({
-      ...item,
-      id: item.id.toString(),
-      userId: item.userId?.toString() || null,
-      locationId: item.locationId ? item.locationId.toString() : null,
-      location: item.location ? { ...item.location, id: item.location.id.toString() } : null
-    }));
-
-    return res.json({ success: true, data: formattedData });
+    return res.json({ success: true, data });
   } catch (error: any) {
     console.error("ERROR GET LAPORAN:", error);
     return res.status(500).json({ success: false, message: "Gagal ambil data", detail: error.message });
@@ -29,15 +26,17 @@ export const getLaporan = async (req: Request, res: Response): Promise<any> => {
 };
 
 // POST /api/laporan/create (Untuk Warga Kirim Laporan dari Mobile)
+// POST /api/laporan/create
 export const createLaporan = async (req: Request, res: Response): Promise<any> => {
-  const { userId, description, deskripsi, latitude, longitude, jenisSampah, photoUrl: bodyPhotoUrl } = req.body;
+  // 🆕 TAMBAHAN: Destructure email dan pelapor
+  const { userId, description, deskripsi, latitude, longitude, jenisSampah, photoUrl: bodyPhotoUrl, email, pelapor } = req.body;
   const file = req.file;
 
   try {
-    // 🔒 CEK USER (Sekarang Fleksibel/Opsional)
+    // 🔒 CEK USER VALID
+ // 🔒 CEK USER (Sekarang Fleksibel/Opsional)
     let finalUserId: bigint | null = null;
-    
-    // Jika userId terisi dengan benar
+    // Jika userId kosong/null/undefined/''/NaN, treat as masyarakat umum
     if (userId !== undefined && userId !== null && userId !== '' && !isNaN(Number(userId))) {
       try {
         const userExists = await prisma.user.findUnique({ where: { id: BigInt(userId) } });
@@ -45,12 +44,14 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
           finalUserId = BigInt(userId);
         }
       } catch {
-        // Jika error konversi, biarkan finalUserId null
+        // Jika error konversi, treat as masyarakat umum
         finalUserId = null;
       }
     }
 
-    // Upload foto ke Supabase
+    // ✅ Laporan bisa dibuat dari lokasi apa saja (tanpa validasi geofence)
+
+    // Upload foto ke Supabase (tidak berubah)
     let finalPhotoUrl = bodyPhotoUrl || null;
     if (file) {
       const fileName = `${Date.now()}-${file.originalname.replace(/\s/g, '_')}`;
@@ -85,6 +86,7 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
       }
     }
 
+    // 🆕 TAMBAHAN: Buat laporan dengan email dan pelapor
     const dataBaru = await prisma.report.create({
       data: {
         userId: finalUserId || fallbackUserId,
@@ -94,22 +96,42 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
         jenisSampah: mappedJenisSampah,
         status: 'PENDING',
         photoUrl: finalPhotoUrl,
+        email: email || null,          // 🆕 TAMBAHAN
+        pelapor: pelapor || null,      // 🆕 TAMBAHAN
       },
     });
 
-    return res.status(201).json({
-      success: true,
-      message: 'Laporan berhasil dikirim!',
-      data: {
-        ...dataBaru,
-        id: dataBaru.id.toString(),
-        userId: dataBaru.userId?.toString() || null, 
-        locationId: dataBaru.locationId?.toString() || null,
-      }
-    });
+  return res.status(201).json({
+  success: true,
+  message: 'Laporan berhasil dikirim!',
+  data: {
+    ...dataBaru,
+    id: dataBaru.id.toString(),
+    // Gunakan Optional Chaining (?.) agar tidak error jika null
+    userId: dataBaru.userId?.toString() || null, 
+    locationId: dataBaru.locationId?.toString() || null,
+  }
+});
   } catch (error: any) {
-    console.error("ERROR CREATE LAPORAN:", error);
-    return res.status(500).json({ success: false, message: `Gagal mengirim laporan: ${error.message}` });
+    console.error("❌ ERROR CREATE LAPORAN:", error.message);
+    console.error("Error Code:", error.code);
+    console.error("Full Error:", error);
+    
+    // 🆕 TAMBAHAN: Handle specific error cases
+    let errorMessage = `Gagal mengirim laporan: ${error.message}`;
+    if (error.code === 'P2001') {
+      errorMessage = "User tidak ditemukan di database";
+    } else if (error.code === 'P2002') {
+      errorMessage = "Duplikasi data - laporan serupa mungkin sudah ada";
+    } else if (error.code === 'P2025') {
+      errorMessage = "Data referensi tidak ditemukan";
+    }
+    
+    return res.status(500).json({ 
+      success: false, 
+      message: errorMessage,
+      code: error.code 
+    });
   }
 };
 
@@ -140,29 +162,151 @@ export const getLaporanByUser = async (req: Request, res: Response): Promise<any
 };
 
 // PATCH /api/laporan/:id
+// PATCH /api/laporan/:id
 export const updateStatus = async (req: Request, res: Response): Promise<any> => {
   const { id } = req.params;
   const { status } = req.body;
+
+  // 🆕 VALIDASI: Daftar status yang valid sesuai enum
+  const VALID_STATUSES = ['PENDING', 'DIPROSES', 'DITINDAKLANJUTI', 'SELESAI', 'DITOLAK'];
 
   if (!id || isNaN(Number(id))) {
     return res.status(400).json({ success: false, message: "ID tidak valid" });
   }
 
+  if (!status || !VALID_STATUSES.includes(status)) {
+    return res.status(400).json({ 
+      success: false, 
+      message: `Status tidak valid. Harus salah satu dari: ${VALID_STATUSES.join(', ')}`
+    });
+  }
+
   try {
+    // 🆕 TAMBAHAN: Fetch laporan yang akan diupdate (untuk ambil email & nama pelapor)
+    const laporanLama = await prisma.report.findUnique({
+      where: { id: BigInt(id) },
+      include: {
+        user: { select: { fullName: true, email: true, phoneNumber: true } }
+      }
+    });
+
+    if (!laporanLama) {
+      return res.status(404).json({ success: false, message: "Laporan tidak ditemukan" });
+    }
+
+    // Update status laporan
     const update = await prisma.report.update({
       where: { id: BigInt(id) },
       data: { status }
     });
 
     // 🔥 FITUR REAL-TIME: Kirim event WebSocket ke HP Flutter!
-    const io = req.app.get('io'); 
+    // =========================================================
+    const io = req.app.get('io'); // Mengambil instance Socket.io dari index.ts
     
     if (io) {
       io.emit('status_laporan_berubah', {
-        reportId: update.id.toString(), 
-        newStatus: update.status        
+        reportId: update.id.toString(), // Kirim ID laporan yang baru diubah
+        newStatus: update.status        // Kirim status barunya (DIPROSES/SELESAI)
       });
       console.log(`[Socket.io] Status Update Terkirim: Laporan ${update.id} menjadi ${update.status}`);
+    }
+
+    // ============================================================
+    // 🆕 TAMBAHAN: Kirim email notifikasi ke pelapor non-login
+    // ============================================================
+    let emailTujuan: string | null = null;
+    let namaPelapor: string | null = null;
+
+    // 🆕 OPSI 1: Jika laporan dari masyarakat non-login (punya field email)
+    if (laporanLama.email) {
+      emailTujuan = laporanLama.email;
+      namaPelapor = laporanLama.pelapor || 'Pelapor';
+    } 
+    // 🆕 OPSI 2: Jika laporan dari user login (ambil dari tabel user)
+    else if (laporanLama.user?.email) {
+      emailTujuan = laporanLama.user.email;
+      namaPelapor = laporanLama.user.fullName || 'User';
+    }
+
+    // 🆕 TAMBAHAN: Jika ada email tujuan, kirim notifikasi
+    if (emailTujuan) {
+      try {
+        // 🆕 TAMBAHAN: Buat pesan berbeda sesuai status
+        let judulEmail: string = '';
+        let isiPesan: string = '';
+
+        if (status === 'DIPROSES') {
+          judulEmail = '⏳ Laporan Anda Sedang Ditindaklanjuti - DLH Toba';
+          isiPesan = `
+Halo ${namaPelapor},
+
+Laporan sampah Anda sudah kami terima dan sedang DITINDAKLANJUTI oleh tim Dinas Lingkungan Hidup.
+
+📋 Detail Laporan:
+- Nomor Laporan: ${laporanLama.id.toString()}
+- Status: 🔄 DIPROSES (Sedang Ditangani)
+- Lokasi: ${laporanLama.description || 'Sesuai koordinat GPS'}
+
+Tim kami sedang melakukan tindakan untuk menyelesaikan masalah ini. Anda akan menerima notifikasi lagi ketika status berubah menjadi SELESAI.
+
+Terima kasih atas laporan Anda! 🌱
+
+---
+Dinas Lingkungan Hidup
+Kabupaten Toba
+          `;
+        } else if (status === 'SELESAI') {
+          judulEmail = '✅ Laporan Anda Telah Selesai - DLH Toba';
+          isiPesan = `
+Halo ${namaPelapor},
+
+Laporan sampah Anda telah SELESAI ditindaklanjuti oleh tim Dinas Lingkungan Hidup.
+
+📋 Detail Laporan:
+- Nomor Laporan: ${laporanLama.id.toString()}
+- Status: ✅ SELESAI
+- Lokasi: ${laporanLama.description || 'Sesuai koordinat GPS'}
+
+Masalah lingkungan di lokasi tersebut telah ditangani. Kami sangat menghargai pelaporan Anda yang membantu menjaga kebersihan Kabupaten Toba.
+
+Terima kasih! 🌱
+
+---
+Dinas Lingkungan Hidup
+Kabupaten Toba
+          `;
+        } else if (status === 'DITOLAK') {
+          judulEmail = '❌ Laporan Anda Ditolak - DLH Toba';
+          isiPesan = `
+Halo ${namaPelapor},
+
+Mohon maaf, laporan Anda tidak dapat kami proses karena:
+- Data tidak lengkap atau tidak jelas
+- Lokasi di luar tanggung jawab DLH Toba
+- Laporan duplikat
+
+Silakan hubungi kami untuk informasi lebih lanjut.
+
+📋 Detail Laporan:
+- Nomor Laporan: ${laporanLama.id.toString()}
+- Status: ❌ DITOLAK
+
+---
+Dinas Lingkungan Hidup
+Kabupaten Toba
+          `;
+        }
+
+        // 🆕 TAMBAHAN: Kirim email
+        if (judulEmail && isiPesan) {
+          await sendEmail(emailTujuan, judulEmail, isiPesan);
+          console.log(`📧 Email notifikasi dikirim ke: ${emailTujuan} (Status: ${status})`);
+        }
+      } catch (emailError) {
+        console.error("⚠️ Gagal kirim email notifikasi:", emailError);
+        // Jangan hentikan update jika email gagal
+      }
     }
 
     return res.json({ 
@@ -180,6 +324,7 @@ export const updateStatus = async (req: Request, res: Response): Promise<any> =>
     return res.status(500).json({ success: false, message: "Gagal update status" });
   }
 };
+
 
 // DELETE /api/laporan/:id
 export const deleteLaporan = async (req: Request, res: Response): Promise<any> => {

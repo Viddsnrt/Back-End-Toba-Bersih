@@ -1,7 +1,9 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import http from "http";
 import { Server } from "socket.io";
 
@@ -13,15 +15,16 @@ import uploadRoutes from './routes/uploadRoutes.js';
 import driverRoutes from './routes/driverRoutes.js';
 import penugasanRoutes from './routes/penugasanRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
-import postsRoutes from './routes/postRoutes.js';
-import trackingRoutes from './routes/trackingRoutes.js';
-import aiRoutes from './routes/aiRoutes.js';
-import galleryRoutes from './routes/galleryRoutes.js';
+import postsRoutes from './routes/beritaRoutes.js';
+import routeRoutes from './routes/Routeroutes.js';
 import usersRoutes from './routes/usersRoutes.js';
+import akunmanager from './routes/akunmasyarakatRoutes.js';
+import galleryRoutes from './routes/galleryRoutes.js';
+import edukasiRoutes from './routes/edukasiRoutes.js';
+import { sendEmail } from "./utils/sendEmail.js";
+import kabidRoutes from './routes/kabidRoutes.js';
 import wilayahRoutes from './routes/wilayahRoutes.js';
-import RouteRoutes from './routes/Route.routes.js';
-import akunmasyarakatRoutes from './routes/akunmasyarakatRoutes.js';
-
+import trackingRoutes from './routes/trackingRoutes.js';
 dotenv.config();
 
 const app = express();
@@ -60,7 +63,10 @@ io.on("connection", (socket) => {
   });
 });
 
-app.use(express.json());
+// ================= BODY PARSER MIDDLEWARE =================
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/upload', uploadRoutes);
@@ -68,13 +74,15 @@ app.use('/api/driver', driverRoutes);
 app.use('/api/laporan', laporanRoutes);
 app.use('/api/penugasan', penugasanRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/rute', routeRoutes);
 app.use('/api/posts', postsRoutes);
-app.use('/api/tracking', trackingRoutes);
-app.use('/api/ai', aiRoutes);
-app.use('/api/gallery', galleryRoutes);
 app.use('/api/wilayah', wilayahRoutes);
-app.use('/api/rute', RouteRoutes);
-app.use('/api/users', akunmasyarakatRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/akun-masyarakat', akunmanager);
+app.use('/api/galleries', galleryRoutes);
+app.use('/api/edukasi', edukasiRoutes);
+app.use('/api/kabid', kabidRoutes);
+app.use('/api/tracking', trackingRoutes);
 
 (BigInt.prototype as any).toJSON = function () { return this.toString(); };
 
@@ -106,8 +114,9 @@ const seedAdmin = async () => {
   }
 };
 
-// Jalankan seed hanya jika database terhubung
-if (process.env.NODE_ENV !== 'test') {
+// Jalankan seed hanya jika diminta (hindari gagal startup saat DB belum tersedia)
+// set SEED_ADMIN=true di .env untuk mengaktifkan
+if (process.env.SEED_ADMIN === 'true') {
   seedAdmin();
 }
 
@@ -135,4 +144,14 @@ server.listen(PORT, () => {
 process.on("SIGTERM", async () => {
   await prisma.$disconnect();
   server.close(() => process.exit(0));
+}); 
+
+app.get("/test-email", async (req, res) => {
+  await sendEmail(
+    "ivansrt883@gmail.com",
+    "TEST EMAIL",
+    "Ini test dari sistem kamu"
+  );
+
+  res.send("Email dikirim!");
 });

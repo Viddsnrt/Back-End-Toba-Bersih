@@ -386,26 +386,114 @@ export const reorderWaypoints = async (req: Request, res: Response): Promise<any
 // ============================================================
 // PATCH: Toggle aktif/nonaktif rute
 // ============================================================
-export const toggleStatusRute = async (req: Request, res: Response): Promise<any> => {
-  try {
-    const { ruteId } = req.params;
+export const getRingkasanHasil = async (req: Request, res: Response): Promise<any> => {
+  const { truckId } = req.params;
+  const { tanggal } = req.query;
 
-    const existing = await prisma.routeTemplate.findUnique({ where: { id: BigInt(ruteId) } });
-    if (!existing) {
-      return res.status(404).json({ success: false, message: 'Rute tidak ditemukan' });
+  try {
+    const tglStr    = (tanggal as string) || new Date().toISOString().split('T')[0];
+    const startDate = new Date(`${tglStr}T00:00:00+07:00`);
+    const endDate   = new Date(`${tglStr}T23:59:59+07:00`);
+
+    // ── Query history & truk (selalu ada) ───────────────────
+    const [history, truk] = await Promise.all([
+      prisma.locationHistory.findMany({
+        where: {
+          truckId:   BigInt(truckId),
+          createdAt: { gte: startDate, lte: endDate }
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { latitude: true, longitude: true, createdAt: true }
+      }),
+      prisma.truck.findUnique({
+        where: { id: BigInt(truckId) },
+        include: { operator: { select: { fullName: true, phoneNumber: true } } }
+      })
+    ]);
+
+    if (!truk) {
+      return res.status(404).json({ success: false, message: 'Truk tidak ditemukan' });
     }
 
-    const updated = await prisma.routeTemplate.update({
-      where: { id: BigInt(ruteId) },
-      data:  { isActive: !existing.isActive }
-    });
+    // ── Query task selesai (optional — tidak gagalkan seluruhnya) ──
+    let taskSelesai: any[] = [];
+    try {
+      taskSelesai = await prisma.task.findMany({
+        where: {
+          truckId:     BigInt(truckId),
+          completedAt: { gte: startDate, lte: endDate },
+          status:      'SELESAI'
+        },
+        orderBy: { completedAt: 'asc' }
+      });
+    } catch (taskErr) {
+      console.warn('getRingkasanHasil: query task gagal (field mungkin tidak ada):', taskErr);
+      taskSelesai = [];
+    }
+
+    const jalur = history.map(h => ({
+      lat:       Number(h.latitude),
+      lng:       Number(h.longitude),
+      timestamp: h.createdAt.toISOString()
+    }));
+
+    // Hitung jarak
+    let jarakTotalKm = 0;
+    for (let i = 1; i < jalur.length; i++) {
+      jarakTotalKm += hitungJarak(
+        jalur[i - 1].lat, jalur[i - 1].lng,
+        jalur[i].lat,     jalur[i].lng
+      );
+    }
+
+    // Hitung durasi
+    let durasiMenit = 0;
+    if (jalur.length >= 2) {
+      durasiMenit = Math.round(
+        (new Date(jalur[jalur.length - 1].timestamp).getTime() - new Date(jalur[0].timestamp).getTime()) / 60000
+      );
+    }
+
+    const hariKerja  = getNamaHari(new Date(`${tglStr}T12:00:00+07:00`));
+    const ruteJadwal = await getRuteDariDB(BigInt(truckId), hariKerja);
 
     return res.status(200).json({
       success: true,
-      message: `Rute ${updated.isActive ? 'diaktifkan' : 'dinonaktifkan'}`,
-      data: { id: updated.id.toString(), isActive: updated.isActive }
+      data: {
+        truckId:       truckId.toString(),
+        plateNumber:   truk.plateNumber,
+        operatorName:  truk.operator?.fullName,
+        operatorPhone: truk.operator?.phoneNumber,
+        tanggal:       tglStr,
+        hariKerja,
+        ringkasan: {
+          totalTaskSelesai:    taskSelesai.length,
+          totalVolumeSampahKg: 0,
+          jarakTempuhKm:       Math.round(jarakTotalKm * 100) / 100,
+          durasiKerjaMenit:    durasiMenit,
+          durasiKerjaJam:      Math.round((durasiMenit / 60) * 10) / 10,
+          waktuMulai:   jalur.length > 0 ? jalur[0].timestamp : null,
+          waktuSelesai: jalur.length > 0 ? jalur[jalur.length - 1].timestamp : null,
+        },
+        detailTask:  taskSelesai.map((t: any) => ({
+          id:          t.id?.toString(),
+          location:    t.location,
+          district:    t.district,
+          completedAt: t.completedAt,
+          volumeKg:    t.volumeKg ? Number(t.volumeKg) : null,
+          notes:       t.notes,
+          jumlahFoto:  0
+        })),
+        jalurAktual: jalur,  // ← ini yang paling penting, selalu ada
+        ruteJadwal
+      }
     });
   } catch (error: any) {
+    console.error('getRingkasanHasil error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
+
+
+
+  
 };

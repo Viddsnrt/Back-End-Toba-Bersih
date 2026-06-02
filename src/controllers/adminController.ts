@@ -2,6 +2,283 @@ import type { Request, Response } from 'express';
 import { prisma } from '../config/db.js';
 import * as bcrypt from 'bcrypt';
 
+// ═════════════════════════════════════════════════════════════
+// BUAT AKUN KABID
+// POST /api/admin/kabid
+// ═════════════════════════════════════════════════════════════
+export const createKabid = async (
+  req: Request,
+  res: Response
+): Promise<any> => {
+  try {
+    // Debug logging
+    console.log('📨 createKabid - Request body:', req.body);
+    console.log('📨 createKabid - Request headers:', { 
+      contentType: req.headers['content-type'],
+      hasBody: !!req.body,
+      bodyKeys: req.body ? Object.keys(req.body) : []
+    });
+
+    const {
+      email,
+      fullName,
+      password,
+      phoneNumber
+    } = req.body || {};
+
+    // Validasi
+    if (!email || !fullName || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email, nama lengkap, dan password wajib diisi',
+        received: { email, fullName, password }
+      });
+    }
+
+    // Cek email
+    const existing = await prisma.user.findUnique({
+      where: { email }
+    });
+
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: 'Email sudah terdaftar'
+      });
+    }
+
+    // Hash password
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Buat akun KABID
+    const newKabid = await prisma.user.create({
+      data: {
+        email,
+        fullName,
+        passwordHash,
+        phoneNumber: phoneNumber || null,
+        role: 'KABID',
+        isActive: true
+      },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        phoneNumber: true,
+        role: true,
+        isActive: true,
+        createdAt: true
+      }
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Akun Kepala Bidang berhasil dibuat',
+      data: {
+        ...newKabid,
+        id: newKabid.id.toString()
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ createKabid:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal membuat akun Kepala Bidang',
+      error: error.message
+    });
+  }
+};
+
+// ═════════════════════════════════════════════════════════════
+// GET ALL KABID
+// GET /api/admin/kabid
+// ═════════════════════════════════════════════════════════════
+export const getAllKabid = async (
+  _req: Request,
+  res: Response
+): Promise<any> => {
+  try {
+    const kabidList = await prisma.user.findMany({
+      where: {
+        role: 'KABID'
+      },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        phoneNumber: true,
+        isActive: true,
+        createdAt: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    const formatted = kabidList.map((item) => ({
+      ...item,
+      id: item.id.toString()
+    }));
+
+    return res.json({
+      success: true,
+      data: formatted
+    });
+
+  } catch (error: any) {
+    console.error('❌ getAllKabid:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal mengambil daftar Kepala Bidang'
+    });
+  }
+};
+
+// ═════════════════════════════════════════════════════════════
+// UPDATE KABID
+// PUT /api/admin/kabid/:id
+// ═════════════════════════════════════════════════════════════
+export const updateKabid = async (
+  req: Request,
+  res: Response
+): Promise<any> => {
+  try {
+    const { id } = req.params;
+
+    const {
+      fullName,
+      phoneNumber,
+      isActive,
+      newPassword
+    } = req.body;
+
+    // Cari akun
+    const kabid = await prisma.user.findFirst({
+      where: {
+        id: BigInt(id),
+        role: 'KABID'
+      }
+    });
+
+    if (!kabid) {
+      return res.status(404).json({
+        success: false,
+        message: 'Akun Kepala Bidang tidak ditemukan'
+      });
+    }
+
+    const updateData: any = {};
+
+    if (fullName !== undefined) {
+      updateData.fullName = fullName;
+    }
+
+    if (phoneNumber !== undefined) {
+      updateData.phoneNumber = phoneNumber;
+    }
+
+    if (isActive !== undefined) {
+      updateData.isActive = isActive;
+    }
+
+    // Reset password
+    if (newPassword) {
+      updateData.passwordHash = await bcrypt.hash(
+        newPassword,
+        10
+      );
+    }
+
+    // Update data
+    const updated = await prisma.user.update({
+      where: {
+        id: BigInt(id)
+      },
+      data: updateData,
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        phoneNumber: true,
+        isActive: true,
+        role: true
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Akun Kepala Bidang berhasil diperbarui',
+      data: {
+        ...updated,
+        id: updated.id.toString()
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ updateKabid:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal memperbarui akun Kepala Bidang'
+    });
+  }
+};
+
+// ═════════════════════════════════════════════════════════════
+// DELETE / NONAKTIFKAN KABID
+// DELETE /api/admin/kabid/:id
+// ═════════════════════════════════════════════════════════════
+export const deleteKabid = async (
+  req: Request,
+  res: Response
+): Promise<any> => {
+  try {
+    const { id } = req.params;
+
+    // Cari akun
+    const kabid = await prisma.user.findFirst({
+      where: {
+        id: BigInt(id),
+        role: 'KABID'
+      }
+    });
+
+    if (!kabid) {
+      return res.status(404).json({
+        success: false,
+        message: 'Akun Kepala Bidang tidak ditemukan'
+      });
+    }
+
+    // Soft delete
+    await prisma.user.update({
+      where: {
+        id: BigInt(id)
+      },
+      data: {
+        isActive: false
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Akun Kepala Bidang berhasil dinonaktifkan'
+    });
+
+  } catch (error: any) {
+    console.error('❌ deleteKabid:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal menonaktifkan akun Kepala Bidang'
+    });
+  }
+};
+
+
 // ==========================================
 // BAGIAN 1: MANAJEMEN SUPIR (OPERATOR)
 // ==========================================
@@ -236,326 +513,6 @@ export const deleteTruk = async (req: Request, res: Response): Promise<any> => {
     if (error.code === 'P2003') {
       return res.status(400).json({ success: false, message: "Truk tidak bisa dihapus karena masih terikat riwayat tugas!" });
     }
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ==========================================
-// BAGIAN 4: MANAJEMEN WILAYAH (LOCATION)
-// ==========================================
-
-export const getSemuaWilayah = async (req: Request, res: Response): Promise<any> => {
-  try {
-    const listWilayah = await prisma.location.findMany({
-      orderBy: { name: 'asc' }
-    });
-
-    const formatted = listWilayah.map(w => ({
-      ...w,
-      id: w.id.toString()
-    }));
-
-    return res.status(200).json({ success: true, data: formatted });
-  } catch (error: any) {
-    console.error("ERROR FETCH WILAYAH:", error);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// 🚨 BARU: Validasi data wilayah untuk debugging masalah lokasi
-export const validateWilayahData = async (req: Request, res: Response): Promise<any> => {
-  try {
-    const listWilayah = await prisma.location.findMany({
-      orderBy: { name: 'asc' }
-    });
-
-    if (listWilayah.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: "⚠️ Tidak ada data wilayah di database",
-        data: null,
-        total: 0
-      });
-    }
-
-    const wilayahValid = [];
-    const wilayahInvalid = [];
-    const wilayahTidakAktif = [];
-
-    console.log(`🔍 Memvalidasi ${listWilayah.length} wilayah...`);
-
-    for (const wilayah of listWilayah) {
-      const wilayahInfo = {
-        id: wilayah.id.toString(),
-        name: wilayah.name,
-        code: wilayah.code,
-        isActive: wilayah.isActive,
-        latitude: wilayah.latitude,
-        longitude: wilayah.longitude,
-        radius: wilayah.radius,
-        population: wilayah.population,
-        capacityVolume: wilayah.capacityVolume
-      };
-
-      // Validasi format koordinat
-      const lat = parseFloat(wilayah.latitude);
-      const lon = parseFloat(wilayah.longitude);
-
-      if (isNaN(lat) || isNaN(lon)) {
-        wilayahInvalid.push({
-          ...wilayahInfo,
-          error: "Koordinat tidak valid"
-        });
-        continue;
-      }
-
-      // Validasi range koordinat (untuk Toba)
-      if (lat < 2.0 || lat > 3.5 || lon < 98.5 || lon > 100.0) {
-        wilayahInvalid.push({
-          ...wilayahInfo,
-          error: "Koordinat di luar range Kabupaten Toba"
-        });
-        continue;
-      }
-
-      // Validasi radius
-      if (!wilayah.radius || wilayah.radius < 1000 || wilayah.radius > 50000) {
-        wilayahInvalid.push({
-          ...wilayahInfo,
-          error: "Radius tidak valid (harus 1000-50000 meter)"
-        });
-        continue;
-      }
-
-      // Jika aktif, tambahkan informasi tambahan
-      if (wilayah.isActive) {
-        wilayahInfo.status = "VALID";
-
-        // Hitung luas area (estimasi)
-        const luasArea = Math.PI * Math.pow(wilayah.radius / 1000, 2); // dalam km²
-        wilayahInfo.luasAreaKm2 = luasArea.toFixed(2);
-
-        // Hitung estimasi populasi per km²
-        if (wilayah.population && wilayah.population > 0) {
-          wilayahInfo.kepadatanPopulasiPerKm2 = Math.round(wilayah.population / luasArea);
-        }
-
-        wilayahValid.push(wilayahInfo);
-      } else {
-        wilayahTidakAktif.push({
-          ...wilayahInfo,
-          status: "TIDAK AKTIF"
-        });
-      }
-    }
-
-    console.log(`✅ ${wilayahValid.length} wilayah valid, ${wilayahInvalid.length} tidak valid, ${wilayahTidakAktif.length} tidak aktif`);
-
-    return res.status(200).json({
-      success: true,
-      message: "Validasi data wilayah selesai",
-      data: {
-        valid: wilayahValid,
-        invalid: wilayahInvalid,
-        inactive: wilayahTidakAktif,
-        summary: {
-          total: listWilayah.length,
-          valid: wilayahValid.length,
-          invalid: wilayahInvalid.length,
-          inactive: wilayahTidakAktif.length,
-          active: wilayahValid.length
-        }
-      }
-    });
-  } catch (error: any) {
-    console.error("ERROR VALIDASI WILAYAH:", error);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-export const addWilayah = async (req: Request, res: Response): Promise<any> => {
-  const { name, code, population, address, capacityVolume, latitude, longitude, radius, isActive } = req.body;
-
-  try {
-    const uniqueCode = code && code.trim() !== ""
-      ? code
-      : `KEC-${name.toUpperCase().substring(0, 3)}-${Date.now().toString().slice(-4)}`;
-
-    const newWilayah = await prisma.location.create({
-      data: {
-        name,
-        code: uniqueCode,
-        population: population ? parseInt(population) : null,
-        address: address || "",
-        capacityVolume: capacityVolume ? parseInt(capacityVolume) : null,
-        latitude: latitude.toString(),
-        longitude: longitude.toString(),
-        radius: radius ? parseInt(radius) : 5000,
-        isActive: isActive !== undefined ? isActive : true,
-        locationType: 'KECAMATAN'
-      }
-    });
-
-    return res.status(201).json({
-      success: true,
-      message: "Wilayah berhasil ditambahkan",
-      data: { ...newWilayah, id: newWilayah.id.toString() }
-    });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-export const toggleWilayahStatus = async (req: Request, res: Response): Promise<any> => {
-  const { id } = req.params;
-  try {
-    const wilayah = await prisma.location.findUnique({ where: { id: BigInt(id) } });
-    if (!wilayah) return res.status(404).json({ success: false, message: "Wilayah tidak ditemukan" });
-
-    await prisma.location.update({
-      where: { id: BigInt(id) },
-      data: { isActive: !wilayah.isActive }
-    });
-
-    return res.status(200).json({ success: true, message: "Status wilayah berhasil diubah" });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-export const deleteWilayah = async (req: Request, res: Response): Promise<any> => {
-  const { id } = req.params;
-  try {
-    await prisma.location.delete({ where: { id: BigInt(id) } });
-    return res.status(200).json({ success: true, message: "Wilayah berhasil dihapus" });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ==========================================
-// BAGIAN 5: TRACKING SUPIR (LOKASI REAL-TIME)
-// ==========================================
-
-export const getTrukAktif = async (req: Request, res: Response): Promise<any> => {
-  try {
-    const trukAktif = await prisma.truck.findMany({
-      where: { status: 'BUSY' },
-      include: {
-        operator: { select: { id: true, fullName: true, phoneNumber: true } },
-        tasks: {
-          where: { status: { in: ['DITERIMA', 'DALAM_PERJALANAN', 'TIBA', 'BEKERJA'] } },
-          orderBy: { updatedAt: 'desc' },
-          take: 1,
-          select: { status: true, location: true, district: true }
-        }
-      }
-    });
-
-    const formatted = trukAktif.map(truk => ({
-      id: truk.id.toString(),
-      plateNumber: truk.plateNumber,
-      status: truk.status,
-      currentLat: truk.currentLat ? Number(truk.currentLat) : null,
-      currentLong: truk.currentLong ? Number(truk.currentLong) : null,
-      lastPing: truk.lastPing,
-      lastLocation: truk.lastLocation,
-      operator: truk.operator
-        ? { ...truk.operator, id: truk.operator.id.toString() }
-        : null,
-      taskAktif: truk.tasks[0] || null
-    }));
-
-    return res.status(200).json({ success: true, data: formatted });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-export const getRiwayatJalur = async (req: Request, res: Response): Promise<any> => {
-  const { truckId } = req.params;
-  const { tanggal } = req.query;
-
-  try {
-    const startDate = tanggal
-      ? new Date(`${tanggal}T00:00:00.000Z`)
-      : new Date(new Date().setHours(0, 0, 0, 0));
-    const endDate = tanggal
-      ? new Date(`${tanggal}T23:59:59.999Z`)
-      : new Date(new Date().setHours(23, 59, 59, 999));
-
-    const history = await prisma.locationHistory.findMany({
-      where: {
-        truckId: BigInt(truckId),
-        createdAt: { gte: startDate, lte: endDate }
-      },
-      orderBy: { createdAt: 'asc' }
-    });
-
-    const truk = await prisma.truck.findUnique({
-      where: { id: BigInt(truckId) },
-      include: { operator: { select: { fullName: true } } }
-    });
-
-    const jalur = history.map(h => ({
-      lat: Number(h.latitude),
-      lng: Number(h.longitude),
-      timestamp: h.createdAt
-    }));
-
-    return res.status(200).json({
-      success: true,
-      data: {
-        truckId,
-        plateNumber: truk?.plateNumber,
-        operatorName: truk?.operator?.fullName,
-        tanggal: tanggal || new Date().toISOString().split('T')[0],
-        totalTitik: jalur.length,
-        jalur
-      }
-    });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-export const updateLokasiTruk = async (req: Request, res: Response): Promise<any> => {
-  const { truckId, latitude, longitude } = req.body;
-
-  if (!truckId || !latitude || !longitude) {
-    return res.status(400).json({ success: false, message: 'truckId, latitude, longitude wajib diisi' });
-  }
-
-  try {
-    await prisma.truck.update({
-      where: { id: BigInt(truckId) },
-      data: {
-        currentLat: latitude.toString(),
-        currentLong: longitude.toString(),
-        lastPing: new Date()
-      }
-    });
-
-    await prisma.locationHistory.create({
-      data: {
-        truckId: BigInt(truckId),
-        latitude: latitude.toString(),
-        longitude: longitude.toString()
-      }
-    });
-
-    const io = req.app.get('io');
-    if (io) {
-      io.emit('truck_location_update', {
-        truckId: truckId.toString(),
-        latitude: Number(latitude),
-        longitude: Number(longitude),
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    return res.status(200).json({ success: true, message: 'Lokasi berhasil diupdate' });
-  } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
