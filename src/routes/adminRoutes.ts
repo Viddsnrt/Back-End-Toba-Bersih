@@ -10,19 +10,16 @@ import {
   addTruk,
   updateTruk,
   deleteTruk,
-  getSemuaWilayah,
-  addWilayah,
-  toggleWilayahStatus,
-  deleteWilayah,
-  getTrukAktif,
-  getRiwayatJalur,
-  updateLokasiTruk,
-  validateWilayahData,
+  // getTrukAktif,
+  // getRiwayatJalur,
+  // updateLokasiTruk,
   createKabid,
   getAllKabid,
   updateKabid,
   deleteKabid,
 } from '../controllers/adminController.js';
+
+
 
 const router = Router();
 
@@ -38,21 +35,13 @@ router.post('/truks', authenticateToken, addTruk);
 router.put('/truks/:id', authenticateToken, updateTruk);
 router.delete('/truks/:id', authenticateToken, deleteTruk);
 
-// --- Rute Wilayah (Location) ---
-router.get('/wilayah', authenticateToken, getSemuaWilayah);
-router.get('/wilayah/validate', validateWilayahData);
-router.post('/wilayah', authenticateToken, addWilayah);
-router.patch('/wilayah/:id/toggle', authenticateToken, toggleWilayahStatus);
-router.delete('/wilayah/:id', authenticateToken, deleteWilayah);
-
 // --- Rute Penugasan ---
 router.patch('/laporan/:idLaporan/tugaskan', authenticateToken, tugaskanLaporan);
 
 // --- Rute Tracking ---
-router.get('/tracking/truk-aktif', authenticateToken, getTrukAktif);
-router.get('/tracking/riwayat/:truckId', authenticateToken, getRiwayatJalur);
-router.post('/tracking/update-lokasi', updateLokasiTruk); // tanpa auth, dipanggil dari Flutter
-
+// router.get('/tracking/truk-aktif', authenticateToken, getTrukAktif);
+// router.get('/tracking/riwayat/:truckId', authenticateToken, getRiwayatJalur);
+// router.post('/tracking/update-lokasi', updateLokasiTruk); // tanpa auth, dipanggil dari Flutter
 
 // --- Manajemen Kepala Bidang (KABID) – hanya ADMIN ---
 router.get('/kabid', authenticateToken, authorizeAdmin, getAllKabid);
