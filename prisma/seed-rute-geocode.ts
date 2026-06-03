@@ -1,12 +1,4 @@
-/**
- * seed-rute-geocode.ts
- * 
- * Script ini melakukan 2 hal sekaligus:
- * 1. Parse semua rute dari data DOCX ke struktur TypeScript
- * 2. Geocode nama lokasi → lat/lng pakai Nominatim (OpenStreetMap, GRATIS)
- * 
- * Jalankan: npx ts-node prisma/seed-rute-geocode.ts
- */
+
 
 import { PrismaClient } from '@prisma/client';
 

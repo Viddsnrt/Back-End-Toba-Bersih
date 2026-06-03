@@ -1,311 +1,292 @@
-  generator client {
-    provider        = "prisma-client-js"
-    previewFeatures = ["postgresqlExtensions"]
-  }
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
 
-  datasource db {
-    provider   = "postgresql"
-    url        = env("DATABASE_URL")
-    directUrl  = env("DIRECT_URL")
-    extensions = [postgis(schema: "extensions"), uuid_ossp(map: "uuid-ossp", schema: "extensions")]
-  }
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [postgis(schema: "extensions"), uuid_ossp(map: "uuid-ossp", schema: "extensions")]
+}
 
-  model User {
-    id            BigInt         @id @default(autoincrement())
-    username      String?        @unique
-    email         String         @unique
-    passwordHash  String         @map("password_hash")
-    fullName      String         @map("full_name")
-    phoneNumber   String?        @map("phone_number")
-    role          Role           @default(WARGA)
-    createdAt     DateTime       @default(now()) @map("created_at")
-    updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at")
-    isActive      Boolean        @default(true)
-    notifications Notification[]
-    posts         Post[]
-    reports       Report[]
-    assigned      Task[]         @relation("TaskAssigner")
-    tasks         Task[]         @relation("TaskDriver")
-    trucks        Truck[]
-    volumes       Volume[]
+model User {
+  id            BigInt         @id @default(autoincrement())
+  username      String?        @unique
+  email         String         @unique
+  passwordHash  String         @map("password_hash")
+  fullName      String         @map("full_name")
+  phoneNumber   String?        @map("phone_number")
+  role          Role           @default(WARGA)
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at")
+  isActive      Boolean        @default(true)
+  fcm_token     String?
+  notifications Notification[]
+  posts         Post[]
+  reports       Report[]
+  assigned      Task[]         @relation("TaskAssigner")
+  tasks         Task[]         @relation("TaskDriver")
+  trucks        Truck[]
 
-    @@map("users")
-  }
+  @@map("users")
+}
 
-  model Location {
-    id             BigInt                    @id @default(autoincrement())
-    name           String
-    locationType   String                    @map("location_type")
-    isActive       Boolean                   @default(true) @map("is_active")
-    code           String?                   @unique
-    population     Int?
-    latitude       Decimal                   @db.Decimal(10, 8)
-    longitude      Decimal                   @db.Decimal(11, 8)
-    geom           Unsupported("geography")?
-    address        String?
-    capacityVolume Int?                      @map("capacity_volume")
-    createdAt      DateTime                  @default(now()) @map("created_at")
-    updatedAt      DateTime                  @default(now()) @map("updated_at")
-    radius         Int?
-    reports        Report[]
-    routesStart    Route[]                   @relation("StartLocation")
+model Location {
+  id             BigInt                    @id @default(autoincrement())
+  name           String
+  locationType   String                    @map("location_type")
+  isActive       Boolean                   @default(true) @map("is_active")
+  code           String?                   @unique
+  latitude       Decimal                   @db.Decimal(10, 8)
+  longitude      Decimal                   @db.Decimal(11, 8)
+  address        String?
+  createdAt      DateTime                  @default(now()) @map("created_at")
+  updatedAt      DateTime                  @default(now()) @map("updated_at")
+  radius         Int?
+  routesStart    Route[]                   @relation("StartLocation")
 
-    @@map("locations")
-  }
+  @@map("locations")
+}
 
-  model Report {
-    id            BigInt                    @id @default(autoincrement())
-    userId        BigInt?                   @map("user_id")
-    email         String?  @db.VarChar(255)
-    pelapor       String?                   @db.VarChar(255)
-    jenisSampah   WasteType?                @map("jenis_sampah")
-    locationId    BigInt?                   @map("location_id")
-    latitude      Decimal                   @db.Decimal(10, 8)
-    longitude     Decimal                   @db.Decimal(11, 8)
-    geom          Unsupported("geography")?
-    photoUrl      String?                   @map("photo_url")
-    description   String?
-    latCompleted  Decimal?                  @map("lat_completed") @db.Decimal(10, 8)
-    longCompleted Decimal?                  @map("long_completed") @db.Decimal(11, 8)
-    photoAfterUrl String?                   @map("photo_after_url")
-    status        ReportStatus              @default(PENDING)
-    createdAt     DateTime                  @default(now()) @map("created_at")
-    updatedAt     DateTime                  @default(now()) @map("updated_at")
-    location      Location?                 @relation(fields: [locationId], references: [id])
-    user          User?                     @relation(fields: [userId], references: [id])
-    task          Task?
-    volumes       Volume[]
+model Report {
+  id            BigInt       @id @default(autoincrement())
+  userId        BigInt?      @map("user_id")
+  latitude      Decimal      @db.Decimal(10, 8)
+  longitude     Decimal      @db.Decimal(11, 8)
+  photoUrl      String?      @map("photo_url")
+  description   String?
+  photoAfterUrl String?      @map("photo_after_url")
+  status        ReportStatus @default(PENDING)
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @default(now()) @map("updated_at")
+  email         String?
+  pelapor       String?
+  user          User?        @relation(fields: [userId], references: [id])
+  task          Task?
 
-    @@map("reports")
-  }
+  @@map("reports")
+}
 
-  model Truck {
-    id              BigInt            @id @default(autoincrement())
-    plateNumber     String            @unique @map("plate_number")
-    operatorId      BigInt?           @map("operator_id")
-    currentLat      Decimal?          @map("current_lat") @db.Decimal(10, 8)
-    currentLong     Decimal?          @map("current_long") @db.Decimal(11, 8)
-    lastPing        DateTime?         @map("last_ping")
-    lastLocation    String?           @map("last_location")
-    createdAt       DateTime          @default(now()) @map("created_at")
-    updatedAt       DateTime          @default(now()) @map("updated_at")
-    status          TruckStatus       @default(AVAILABLE)
-    brand           String?
-    truckType       String?           @map("truck_type")
-    unitCode        String?           @map("unit_code")
-    locationHistory LocationHistory[]
-    routesTemplate  RouteTemplate[]
-    routes          Route[]
-    tasks           Task[]
-    operator        User?             @relation(fields: [operatorId], references: [id])
+model Truck {
+  id              BigInt            @id @default(autoincrement())
+  plateNumber     String            @unique @map("plate_number")
+  operatorId      BigInt?           @map("operator_id")
+  currentLat      Decimal?          @map("current_lat") @db.Decimal(10, 8)
+  currentLong     Decimal?          @map("current_long") @db.Decimal(11, 8)
+  lastPing        DateTime?         @map("last_ping")
+  lastLocation    String?           @map("last_location")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @default(now()) @map("updated_at")
+  status          TruckStatus       @default(AVAILABLE)
+  brand           String?
+  truckType       String?           @map("truck_type")
+  unitCode        String?           @map("unit_code")
+  locationHistory LocationHistory[]
+  routesTemplate  RouteTemplate[]
+  routes          Route[]
+  tasks           Task[]
+  operator        User?             @relation(fields: [operatorId], references: [id])
 
-    @@map("trucks")
-  }
+  @@map("trucks")
+}
 
-  model RouteTemplate {
-    id        BigInt          @id @default(autoincrement())
-    name      String
-    truckId   BigInt
-    dayOfWeek String
-    isActive  Boolean         @default(true)
-    createdAt DateTime        @default(now())
-    updatedAt DateTime        @updatedAt
-    truck     Truck           @relation(fields: [truckId], references: [id], onDelete: Cascade)
-    waypoints RouteWaypoint[]
+model RouteTemplate {
+  id        BigInt          @id @default(autoincrement())
+  name      String
+  truckId   BigInt
+  dayOfWeek String
+  isActive  Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  truck     Truck           @relation(fields: [truckId], references: [id], onDelete: Cascade)
+  waypoints RouteWaypoint[]
 
-    @@unique([truckId, dayOfWeek])
-    @@map("route_templates")
-  }
+  @@unique([truckId, dayOfWeek])
+  @@map("route_templates")
+}
 
-  model RouteWaypoint {
-    id        BigInt        @id @default(autoincrement())
-    routeId   BigInt
-    order     Int
-    name      String
-    latitude  Float
-    longitude Float
-    createdAt DateTime      @default(now())
-    updatedAt DateTime      @updatedAt
-    route     RouteTemplate @relation(fields: [routeId], references: [id], onDelete: Cascade)
+model RouteWaypoint {
+  id        BigInt        @id @default(autoincrement())
+  routeId   BigInt
+  order     Int
+  name      String
+  latitude  Float
+  longitude Float
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  route     RouteTemplate @relation(fields: [routeId], references: [id], onDelete: Cascade)
 
-    @@map("route_waypoints")
-  }
+  @@map("route_waypoints")
+}
 
-  model LocationHistory {
-    id        BigInt   @id @default(autoincrement())
-    truckId   BigInt   @map("truck_id")
-    latitude  Decimal  @db.Decimal(10, 8)
-    longitude Decimal  @db.Decimal(11, 8)
-    createdAt DateTime @default(now()) @map("created_at")
-    truck     Truck    @relation(fields: [truckId], references: [id])
+model LocationHistory {
+  id        BigInt   @id @default(autoincrement())
+  truckId   BigInt   @map("truck_id")
+  latitude  Decimal  @db.Decimal(10, 8)
+  longitude Decimal  @db.Decimal(11, 8)
+  createdAt DateTime @default(now()) @map("created_at")
+  truck     Truck    @relation(fields: [truckId], references: [id])
 
-    @@map("location_history")
-  }
+  @@map("location_history")
+}
 
-  model Route {
-    id              BigInt    @id @default(autoincrement())
-    truckId         BigInt    @map("truck_id")
-    date            DateTime  @db.Date
-    startLocationId BigInt?   @map("start_location_id")
-    status          String    @default("PLANNED") @map("route_status")
-    startLocation   Location? @relation("StartLocation", fields: [startLocationId], references: [id])
-    truck           Truck     @relation(fields: [truckId], references: [id])
+model Route {
+  id              BigInt    @id @default(autoincrement())
+  truckId         BigInt    @map("truck_id")
+  date            DateTime  @db.Date
+  startLocationId BigInt?   @map("start_location_id")
+  status          String    @default("PLANNED") @map("route_status")
+  startLocation   Location? @relation("StartLocation", fields: [startLocationId], references: [id])
+  truck           Truck     @relation(fields: [truckId], references: [id])
 
-    @@map("routes")
-  }
+  @@map("routes")
+}
 
-  model Volume {
-    id             BigInt   @id @default(autoincrement())
-    reportId       BigInt?  @map("report_id")
-    volumeKg       Decimal  @map("volume_kg") @db.Decimal(10, 2)
-    recordedAt     DateTime @default(now()) @map("recorded_at")
-    recordedBy     BigInt?  @map("recorded_by")
-    recordedByUser User?    @relation(fields: [recordedBy], references: [id])
-    report         Report?  @relation(fields: [reportId], references: [id])
+model Post {
+  id          Int      @id @default(autoincrement())
+  title       String
+  slug        String   @unique
+  content     String
+  category    Category @default(BERITA)
+  imageUrl    String?  @map("image_url")
+  isPublished Boolean  @default(false) @map("is_published")
+  isFeatured  Boolean  @default(false) @map("is_featured")
+  authorId    BigInt   @map("author_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  author      User     @relation(fields: [authorId], references: [id])
 
-    @@map("volumes")
-  }
+  @@map("posts")
+}
 
-  model Post {
-    id          Int      @id @default(autoincrement())
-    title       String
-    slug        String   @unique
-    content     String
-    category    Category @default(BERITA)
-    imageUrl    String?  @map("image_url")
-    isPublished Boolean  @default(false) @map("is_published")
-    isFeatured  Boolean  @default(false) @map("is_featured")
-    authorId    BigInt   @map("author_id")
-    createdAt   DateTime @default(now()) @map("created_at")
-    updatedAt   DateTime @updatedAt @map("updated_at")
-    author      User     @relation(fields: [authorId], references: [id])
 
-    @@map("posts")
-  }
+model Notification {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  title     String
+  message   String
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id])
 
-  model Document {
-    id            Int      @id @default(autoincrement())
-    title         String
-    description   String?
-    fileUrl       String   @map("file_url")
-    fileSize      String?  @map("file_size")
-    downloadCount Int      @default(0) @map("download_count")
-    createdAt     DateTime @default(now()) @map("created_at")
+  @@map("notifications")
+}
 
-    @@map("documents")
-  }
+model Task {
+  id          BigInt      @id @default(autoincrement())
+  taskNumber  String      @unique @map("task_number")
+  type        String
+  status      TaskStatus  @default(DITUGASKAN)
+  driverId    BigInt?     @map("driver_id")
+  truckId     BigInt?     @map("truck_id")
+  assignerId  BigInt?     @map("assigner_id")
+  reportId    BigInt?     @unique @map("report_id")
+  location    String
+  latitude    Decimal?    @db.Decimal(10, 8)
+  longitude   Decimal?    @db.Decimal(11, 8)
+  district    String?
+  description String?
+  scheduledAt DateTime    @map("scheduled_at")
+  startedAt   DateTime?   @map("started_at")
+  completedAt DateTime?   @map("completed_at")
+  volumeKg    Decimal?    @map("volume_kg") @db.Decimal(10, 2)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+  notes       String?
+  pelapor     String?
+  photos      TaskPhoto[]
+  assigner    User?       @relation("TaskAssigner", fields: [assignerId], references: [id])
+  driver      User?       @relation("TaskDriver", fields: [driverId], references: [id])
+  report      Report?     @relation(fields: [reportId], references: [id])
+  truck       Truck?      @relation(fields: [truckId], references: [id])
 
-  model Notification {
-    id        BigInt   @id @default(autoincrement())
-    userId    BigInt   @map("user_id")
-    title     String
-    message   String
-    isRead    Boolean  @default(false) @map("is_read")
-    createdAt DateTime @default(now()) @map("created_at")
-    user      User     @relation(fields: [userId], references: [id])
+  @@map("tasks")
+}
 
-    @@map("notifications")
-  }
+model TaskPhoto {
+  id        BigInt   @id @default(autoincrement())
+  taskId    BigInt   @map("task_id")
+  photoUrl  String   @map("photo_url")
+  type      String
+  createdAt DateTime @default(now()) @map("created_at")
+  task      Task     @relation(fields: [taskId], references: [id])
 
-  model Task {
-    id          BigInt      @id @default(autoincrement())
-    taskNumber  String      @unique @map("task_number")
-    type        String
-    status      TaskStatus  @default(DITUGASKAN)
-    driverId    BigInt?      @map("driver_id")
-    truckId     BigInt?     @map("truck_id")
-    assignerId  BigInt?     @map("assigner_id")
-    reportId    BigInt?     @unique @map("report_id")
-    location    String
-    latitude    Decimal?    @db.Decimal(10, 8)
-    longitude   Decimal?    @db.Decimal(11, 8)
-    district    String?
-    description String?
-    scheduledAt DateTime    @map("scheduled_at")
-    startedAt   DateTime?   @map("started_at")
-    completedAt DateTime?   @map("completed_at")
-    volumeKg    Decimal?    @map("volume_kg") @db.Decimal(10, 2)
-    createdAt   DateTime    @default(now()) @map("created_at")
-    updatedAt   DateTime    @updatedAt @map("updated_at")
-    notes       String?
-    photos      TaskPhoto[]
-    assigner    User?       @relation("TaskAssigner", fields: [assignerId], references: [id])
-    driver      User        @relation("TaskDriver", fields: [driverId], references: [id])
-    report      Report?     @relation(fields: [reportId], references: [id])
-    truck       Truck?      @relation(fields: [truckId], references: [id])
+  @@map("task_photos")
+}
 
-    @@map("tasks")
-  }
+model gallery_albums {
+  id             Int              @id(map: "GalleryAlbum_pkey") @default(autoincrement())
+  title          String
+  description    String?
+  cover_url      String?
+  created_at     DateTime         @default(now())
+  updated_at     DateTime
+  gallery_photos gallery_photos[]
+}
 
-  model TaskPhoto {
-    id        BigInt   @id @default(autoincrement())
-    taskId    BigInt   @map("task_id")
-    photoUrl  String   @map("photo_url")
-    type      String
-    createdAt DateTime @default(now()) @map("created_at")
-    task      Task     @relation(fields: [taskId], references: [id])
+model gallery_photos {
+  id             Int            @id(map: "GalleryPhoto_pkey") @default(autoincrement())
+  album_id       Int
+  image_url      String
+  caption        String?
+  created_at     DateTime       @default(now())
+  gallery_albums gallery_albums @relation(fields: [album_id], references: [id], onDelete: Cascade, map: "GalleryPhoto_album_id_fkey")
+}
 
-    @@map("task_photos")
-  }
+model edukasi {
+  id         Int       @id @default(autoincrement())
+  judul      String
+  deskripsi  String?
+  media_url  String
+  media_type MediaType
+  created_at DateTime  @default(now())
+  updated_at DateTime
+}
 
-  model gallery_albums {
-    id             Int              @id(map: "GalleryAlbum_pkey") @default(autoincrement())
-    title          String
-    description    String?
-    cover_url      String?
-    created_at     DateTime         @default(now())
-    updated_at     DateTime
-    gallery_photos gallery_photos[]
-  }
+enum Role {
+  WARGA
+  OPERATOR
+  ADMIN
+  KABID
+}
 
-  model gallery_photos {
-    id             Int            @id(map: "GalleryPhoto_pkey") @default(autoincrement())
-    album_id       Int
-    image_url      String
-    caption        String?
-    created_at     DateTime       @default(now())
-    gallery_albums gallery_albums @relation(fields: [album_id], references: [id], onDelete: Cascade, map: "GalleryPhoto_album_id_fkey")
-  }
+enum ReportStatus {
+  PENDING
+  DITINDAKLANJUTI
+  SELESAI
+}
 
-  enum Role {
-    WARGA
-    OPERATOR
-    ADMIN
-  }
+enum TruckStatus {
+  AVAILABLE
+  BUSY
+  MAINTENANCE
+}
 
-  enum ReportStatus {
-    PENDING
-    DIPROSES
-    DITINDAKLANJUTI
-    SELESAI
-    DITOLAK
-  }
+enum Category {
+  BERITA
+  PENGUMUMAN
+  PROFIL_DLH
+  EDUKASI
+}
 
-  enum TruckStatus {
-    AVAILABLE
-    BUSY
-    MAINTENANCE
-  }
+enum WasteType {
+  ORGANIK
+  ANORGANIK
+  B3
+  CAMPURAN
+}
 
-  enum Category {
-    BERITA
-    PENGUMUMAN
-    PROFIL_DLH
-    EDUKASI
-  }
+enum TaskStatus {
+  DITUGASKAN
+  DITERIMA
+  DALAM_PERJALANAN
+  TIBA
+  BEKERJA
+  SELESAI
+}
 
-  enum WasteType {
-    ORGANIK
-    ANORGANIK
-    B3
-    CAMPURAN
-  }
-
-  enum TaskStatus {
-    DITUGASKAN
-    DITERIMA
-    DALAM_PERJALANAN
-    TIBA
-    BEKERJA
-    SELESAI
-  }
+enum MediaType {
+  IMAGE
+  VIDEO
+}
