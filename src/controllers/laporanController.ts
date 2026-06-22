@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { prisma, supabase } from '../config/db.js';
-import { sendEmail } from '../utils/sendEmail.js'; 
+import { sendEmail } from '../utils/sendEmail.js';
+import { validateWasteImage, QualityCheckError } from '../services/validationService.js';
 
 // ============================================================
 // GET SEMUA LAPORAN (Admin)
@@ -19,7 +20,14 @@ export const getLaporan = async (req: Request, res: Response): Promise<any> => {
       },
     });
 
-    // console.log(`✅ Berhasil fetch ${data.length} laporan`);
+    // Konversi BigInt ke String dan Decimal ke Number agar JSON.stringify tidak error
+    const formattedData = data.map((item: any) => ({
+      ...item,
+      id: item.id.toString(),
+      userId: item.userId ? item.userId.toString() : null,
+      latitude: item.latitude ? Number(item.latitude) : 0,
+      longitude: item.longitude ? Number(item.longitude) : 0,
+    }));
 
     return res.json({
       success: true,
@@ -27,10 +35,7 @@ export const getLaporan = async (req: Request, res: Response): Promise<any> => {
       data: formattedData,
     });
   } catch (error: any) {
-    console.error(" ERROR GET LAPORAN:", error.message);
-    console.error("Error Code:", error.code);
-    console.error("Full Error:", error);
-
+    console.error('ERROR GET LAPORAN:', error.message);
     return res.status(500).json({
       success: false,
       message: 'Gagal ambil data',
@@ -48,7 +53,7 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
   const file = req.file;
 
   try {
-    // 🆕 TAMBAHAN: Validasi email jika masyarakat tidak login
+    // Validasi email jika masyarakat tidak login
     if (!userId || userId === '' || userId === null) {
       if (!email || !email.trim() || !email.includes('@')) {
         return res.status(400).json({
@@ -58,21 +63,18 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
       }
     }
 
-    // CEK USER (Fleksibel/Opsional)
+    // Cek user (opsional)
     let finalUserId: bigint | null = null;
-    // Jika userId kosong/null/undefined/''/NaN, treat as masyarakat umum
     if (userId !== undefined && userId !== null && userId !== '' && !isNaN(Number(userId))) {
       try {
         const userExists = await prisma.user.findUnique({ where: { id: BigInt(userId) } });
         if (userExists) finalUserId = BigInt(userId);
       } catch {
-        // Jika error konversi, treat as masyarakat umum
         finalUserId = null;
       }
     }
-    // ============================================================
-    //  UPLOAD FOTO KE SUPABASE
-    // ============================================================
+
+    // Upload foto ke Supabase
     let finalPhotoUrl = bodyPhotoUrl || null;
     let uploadedFileName: string | null = null;
 
@@ -89,34 +91,28 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
       uploadedFileName = fileName;
     }
 
-    // ============================================================
-    //  VALIDASI ML (Quality Check + Prediksi) 
-    // ============================================================
+    // Validasi ML
     if (file && finalPhotoUrl) {
       try {
         const mlResult = await validateWasteImage(file.buffer, file.originalname);
         console.log(`[ML] Prediksi: ${mlResult.prediction.label} (${(mlResult.prediction.confidence * 100).toFixed(1)}%)`);
 
         if (mlResult.prediction.class === 0) {
-          // Hapus foto yang sudah terupload di Supabase
           if (uploadedFileName) {
             await supabase.storage.from('Foto-sampah').remove([uploadedFileName]);
           }
           return res.status(422).json({
             success: false,
             message: `Foto sampah dinilai "Tidak Layak Diangkut" oleh sistem (confidence: ${(mlResult.prediction.confidence * 100).toFixed(0)}%). Silakan foto ulang dengan sudut yang lebih jelas.`,
-            ml_result: mlResult
+            ml_result: mlResult,
           });
         }
-
       } catch (err) {
-        // Quality check gagal (blur, gelap, coverage terlalu kecil, dll)
         if (err instanceof QualityCheckError) {
           console.log(`[ML] Quality check failed: ${err.rejection.reason}`);
           if (uploadedFileName) {
             await supabase.storage.from('Foto-sampah').remove([uploadedFileName]);
           }
-          
           return res.status(422).json({
             success: false,
             message: err.rejection.reason,
@@ -124,8 +120,6 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
             quality_details: err.rejection.quality_details,
           });
         }
-        
-        // Error teknis ML server (mati/timeout) — laporan tetap bisa masuk (non-blocking)
         console.error('⚠️ ML validation error (non-blocking):', err);
       }
     }
@@ -153,7 +147,7 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
       },
     });
 
-    // Kirim email konfirmasi ke masyarakat
+    // Kirim email konfirmasi
     if (email) {
       try {
         const emailContent = `
@@ -162,9 +156,9 @@ Halo ${pelapor || 'Pelapor'},
 Terima kasih telah melaporkan masalah lingkungan di Kabupaten Toba.
 
 📋 Detail Laporan:
-- Nomor Laporan: ${dataBaru.id.toString()}
-- Tanggal: ${new Date(dataBaru.createdAt).toLocaleDateString('id-ID')}
-- Status: PENDING (Menunggu Ditindaklanjuti)
+- Nomor Laporan : ${dataBaru.id.toString()}
+- Tanggal       : ${new Date(dataBaru.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+- Status        : PENDING (Menunggu Ditindaklanjuti)
 
 Anda akan menerima notifikasi email ketika status laporan berubah.
 
@@ -178,7 +172,7 @@ Kabupaten Toba
         await sendEmail(email, '✅ Laporan Sampah Diterima - DLH Toba', emailContent);
         console.log(`📧 Email konfirmasi dikirim ke: ${email}`);
       } catch (emailError) {
-        console.error("⚠️ Gagal kirim email konfirmasi:", emailError);
+        console.error('⚠️ Gagal kirim email konfirmasi:', emailError);
       }
     }
 
@@ -219,13 +213,16 @@ export const getLaporanByUser = async (req: Request, res: Response): Promise<any
   try {
     const data = await prisma.report.findMany({
       where: { userId: BigInt(userIdString) },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
 
+    // Konversi BigInt dan Decimal agar aman di JSON response
     const formattedData = data.map((item: any) => ({
       ...item,
       id: item.id.toString(),
-      userId: item.userId?.toString() || null
+      userId: item.userId?.toString() || null,
+      latitude: item.latitude ? Number(item.latitude) : 0,
+      longitude: item.longitude ? Number(item.longitude) : 0,
     }));
 
     return res.json({ success: true, data: formattedData });
@@ -271,28 +268,16 @@ export const updateStatus = async (req: Request, res: Response): Promise<any> =>
       data: { status },
     });
 
-    // =========================================================
-    // 🔥 FITUR REAL-TIME: Kirim event WebSocket ke HP Flutter!
-    // =========================================================
     const io = req.app.get('io');
     if (io) {
       io.emit('status_laporan_berubah', {
         reportId: update.id.toString(),
-        newStatus: update.status
+        newStatus: update.status,
       });
-      console.log(`[Socket.io] Status Update Terkirim: Laporan ${update.id} menjadi ${update.status}`);
     }
 
-    let emailTujuan: string | null = null;
-    let namaPelapor: string | null = null;
-
-    if (laporanLama.email) {
-      emailTujuan = laporanLama.email;
-      namaPelapor = laporanLama.pelapor || 'Pelapor';
-    } else if (laporanLama.user?.email) {
-      emailTujuan = laporanLama.user.email;
-      namaPelapor = laporanLama.user.fullName || 'User';
-    }
+    const emailTujuan: string | null = laporanLama.email || laporanLama.user?.email || null;
+    const namaPelapor: string = laporanLama.pelapor || laporanLama.user?.fullName || 'Pelapor';
 
     if (emailTujuan) {
       try {
@@ -319,10 +304,14 @@ export const updateStatus = async (req: Request, res: Response): Promise<any> =>
       }
     }
 
-    return res.json({ 
-      success: true, 
-      message: "Status berhasil diupdate", 
-      data: { ...update, id: update.id.toString() } 
+    return res.json({
+      success: true,
+      message: 'Status berhasil diupdate',
+      data: {
+        ...update,
+        id: update.id.toString(),
+        userId: update.userId ? update.userId.toString() : null,
+      },
     });
   } catch (error: any) {
     console.error('ERROR UPDATE STATUS:', error);

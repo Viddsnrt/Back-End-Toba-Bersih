@@ -3,37 +3,16 @@ import { prisma } from '../config/db.js';
 import * as bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
-/**
- * ============================================================================
- * Authentication Controller
- * ============================================================================
- * Handles: login, register, token verification, logout
- * Security: Password hashing, JWT validation, role-based access
- * ============================================================================
- */
-
-// ============================================================================
-// JWT Configuration
-// ============================================================================
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 
-// Validate JWT_SECRET on module load
 if (!JWT_SECRET) {
   console.error('🔴 CRITICAL: JWT_SECRET not configured in .env');
   process.exit(1);
 }
 
-/**
- * ============================================================================
- * LOGIN Endpoint
- * ============================================================================
- * POST /auth/login
- * Body: { email: string, password: string }
- * Response: { success: true, token: string, user: {...} }
- */
 export const login = async (req: Request, res: Response): Promise<any> => {
-  const { email, password } = req.body;
+  const { email, password, fcmToken } = req.body;
 
   try {
     if (!email || !password) {
@@ -75,15 +54,20 @@ export const login = async (req: Request, res: Response): Promise<any> => {
     }
 
     if (!isPasswordValid) {
-      console.log(`❌ Login failed: Invalid password (${email})`);
-      return res.status(401).json({
-        success: false,
-        message: 'Email atau password tidak valid',
-        code: 'INVALID_CREDENTIALS'
-      });
+      return res.status(401).json({ success: false, message: 'Email atau password tidak valid', code: 'INVALID_CREDENTIALS' });
     }
 
-    // STEP 4: Generate JWT Token
+    if (fcmToken) {
+      try {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { fcm_token: fcmToken }
+        });
+      } catch (tokenError) {
+        console.error('⚠️ Gagal memperbarui FCM Token:', tokenError);
+      }
+    }
+
     const tokenPayload = {
       id: user.id.toString(),
       email: user.email,
