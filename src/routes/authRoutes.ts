@@ -1,5 +1,11 @@
 import { Router } from 'express';
-import { login, register, verifyToken, logout } from '../controllers/authController.js'; // Pastikan controller ini juga sudah dibuat
+import { 
+  login, 
+  register, 
+  verifyToken, 
+  logout, 
+  updateProfile  // ✅ Ditambahkan dari versi mobile
+} from '../controllers/authController.js';
 
 const router = Router();
 
@@ -12,5 +18,8 @@ router.post('/verify', verifyToken);
 
 // ✅ Endpoint untuk logout
 router.post('/logout', logout);
+
+// ✅ Endpoint update profil (dari versi mobile)
+router.put('/update-profile', updateProfile);
 
 export default router;

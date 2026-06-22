@@ -3,60 +3,29 @@ import { prisma } from '../config/db.js';
 import * as bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
-/**
- * ============================================================================
- * Authentication Controller
- * ============================================================================
- * Handles: login, register, token verification, logout
- * Security: Password hashing, JWT validation, role-based access
- * ============================================================================
- */
-
-// ============================================================================
-// JWT Configuration
-// ============================================================================
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 
-// Validate JWT_SECRET on module load
 if (!JWT_SECRET) {
   console.error('🔴 CRITICAL: JWT_SECRET not configured in .env');
   process.exit(1);
 }
 
-/**
- * ============================================================================
- * LOGIN Endpoint
- * ============================================================================
- * POST /auth/login
- * Body: { email: string, password: string }
- * Response: { success: true, token: string, user: {...} }
- */
 export const login = async (req: Request, res: Response): Promise<any> => {
-  const { email, password } = req.body;
+  const { email, password, fcmToken } = req.body;
 
   try {
-    // STEP 1: Validate Input
     if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email dan password harus diisi',
-        code: 'INVALID_INPUT'
-      });
+      return res.status(400).json({ success: false, message: 'Email dan password harus diisi', code: 'INVALID_INPUT' });
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Format email tidak valid',
-        code: 'INVALID_EMAIL_FORMAT'
-      });
+      return res.status(400).json({ success: false, message: 'Format email tidak valid', code: 'INVALID_EMAIL_FORMAT' });
     }
 
     console.log(`\n➡️ Login attempt: ${email}`);
 
-    // STEP 2: Find User
     const user = await prisma.user.findUnique({
       where: { email },
       select: {
@@ -70,46 +39,35 @@ export const login = async (req: Request, res: Response): Promise<any> => {
     });
 
     if (!user) {
-      console.log(`❌ Login failed: User not found (${email})`);
-      return res.status(401).json({
-        success: false,
-        message: 'Email atau password tidak valid',
-        code: 'INVALID_CREDENTIALS'
-      });
+      return res.status(401).json({ success: false, message: 'Email atau password tidak valid', code: 'INVALID_CREDENTIALS' });
     }
 
     if (!user.isActive) {
-      console.log(`❌ Login failed: User inactive (${email})`);
-      return res.status(403).json({
-        success: false,
-        message: 'Akun Anda telah dinonaktifkan. Hubungi admin.',
-        code: 'ACCOUNT_INACTIVE'
-      });
+      return res.status(403).json({ success: false, message: 'Akun Anda telah dinonaktifkan. Hubungi admin.', code: 'ACCOUNT_INACTIVE' });
     }
 
-    // STEP 3: Validate Password
     let isPasswordValid = false;
     try {
       isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     } catch (error) {
-      console.error('❌ Password comparison error:', error);
-      return res.status(401).json({
-        success: false,
-        message: 'Email atau password tidak valid',
-        code: 'INVALID_CREDENTIALS'
-      });
+      return res.status(401).json({ success: false, message: 'Email atau password tidak valid', code: 'INVALID_CREDENTIALS' });
     }
 
     if (!isPasswordValid) {
-      console.log(`❌ Login failed: Invalid password (${email})`);
-      return res.status(401).json({
-        success: false,
-        message: 'Email atau password tidak valid',
-        code: 'INVALID_CREDENTIALS'
-      });
+      return res.status(401).json({ success: false, message: 'Email atau password tidak valid', code: 'INVALID_CREDENTIALS' });
     }
 
-    // STEP 4: Generate JWT Token
+    if (fcmToken) {
+      try {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { fcm_token: fcmToken }
+        });
+      } catch (tokenError) {
+        console.error('⚠️ Gagal memperbarui FCM Token:', tokenError);
+      }
+    }
+
     const tokenPayload = {
       id: user.id.toString(),
       email: user.email,
@@ -120,19 +78,13 @@ export const login = async (req: Request, res: Response): Promise<any> => {
     let token: string;
     try {
       token = jwt.sign(tokenPayload, JWT_SECRET, {
-        expiresIn: JWT_EXPIRES_IN,
+        expiresIn: JWT_EXPIRES_IN as any,
         algorithm: 'HS256'
       });
     } catch (error) {
-      console.error('❌ Token generation failed:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Gagal generate token. Coba lagi nanti.',
-        code: 'TOKEN_GENERATION_ERROR'
-      });
+      return res.status(500).json({ success: false, message: 'Gagal generate token.', code: 'TOKEN_GENERATION_ERROR' });
     }
 
-    // STEP 5: Set httpOnly Cookie
     try {
       res.cookie('token', token, {
         httpOnly: true,
@@ -144,8 +96,6 @@ export const login = async (req: Request, res: Response): Promise<any> => {
     } catch (err) {
       console.warn('Warning: unable to set httpOnly cookie.', err);
     }
-
-    console.log(`✅ Login successful: ${user.fullName} (${user.role})`);
 
     return res.status(200).json({
       success: true,
@@ -160,98 +110,52 @@ export const login = async (req: Request, res: Response): Promise<any> => {
     });
 
   } catch (error: any) {
-    console.error('🔥 Critical error during login:', {
-      message: error.message,
-      email: req.body.email
-    });
-
     return res.status(500).json({
       success: false,
-      message: 'Kesalahan server. Coba lagi nanti.',
+      message: 'Kesalahan server.',
       code: 'INTERNAL_SERVER_ERROR',
       ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
 
-/**
- * ============================================================================
- * REGISTER Endpoint (Public - untuk WARGA)
- * ============================================================================
- * POST /auth/register
- * Body: { fullName: string, email: string, password: string, passwordConfirm: string }
- * Response: { success: true, message: string, data: {...} }
- */
 export const register = async (req: Request, res: Response): Promise<any> => {
-  const { fullName, email, password, passwordConfirm } = req.body;
+  const { fullName, email, password, passwordConfirm, phoneNumber } = req.body;
 
   try {
-    // STEP 1: Validate Input
     if (!fullName || !email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Nama lengkap, email, dan password harus diisi',
-        code: 'INVALID_INPUT'
-      });
+      return res.status(400).json({ success: false, message: 'Nama lengkap, email, dan password harus diisi', code: 'INVALID_INPUT' });
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Format email tidak valid',
-        code: 'INVALID_EMAIL_FORMAT'
-      });
+      return res.status(400).json({ success: false, message: 'Format email tidak valid', code: 'INVALID_EMAIL_FORMAT' });
     }
 
     if (password.length < 8) {
-      return res.status(400).json({
-        success: false,
-        message: 'Password minimal 8 karakter',
-        code: 'WEAK_PASSWORD'
-      });
+      return res.status(400).json({ success: false, message: 'Password minimal 8 karakter', code: 'WEAK_PASSWORD' });
     }
 
     if (password !== passwordConfirm) {
-      return res.status(400).json({
-        success: false,
-        message: 'Password dan konfirmasi password tidak cocok',
-        code: 'PASSWORD_MISMATCH'
-      });
+      return res.status(400).json({ success: false, message: 'Password dan konfirmasi password tidak cocok', code: 'PASSWORD_MISMATCH' });
     }
 
     if (fullName.trim().length < 3 || fullName.trim().length > 100) {
-      return res.status(400).json({
-        success: false,
-        message: 'Nama lengkap harus 3-100 karakter',
-        code: 'INVALID_NAME'
-      });
+      return res.status(400).json({ success: false, message: 'Nama lengkap harus 3-100 karakter', code: 'INVALID_NAME' });
     }
 
-    // STEP 2: Check if Email Exists
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
-      return res.status(409).json({
-        success: false,
-        message: 'Email sudah terdaftar. Silakan gunakan email lain atau login.',
-        code: 'EMAIL_ALREADY_EXISTS'
-      });
+      return res.status(409).json({ success: false, message: 'Email sudah terdaftar.', code: 'EMAIL_ALREADY_EXISTS' });
     }
 
-    // STEP 3: Hash Password
     let hashedPassword: string;
     try {
       hashedPassword = await bcrypt.hash(password, 10);
     } catch (error) {
-      console.error('❌ Password hashing failed:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Gagal memproses password. Coba lagi nanti.',
-        code: 'HASH_ERROR'
-      });
+      return res.status(500).json({ success: false, message: 'Gagal memproses password.', code: 'HASH_ERROR' });
     }
 
-    // STEP 4: Create User
     let newUser;
     try {
       newUser = await prisma.user.create({
@@ -259,6 +163,7 @@ export const register = async (req: Request, res: Response): Promise<any> => {
           fullName: fullName.trim(),
           email: email.toLowerCase(),
           passwordHash: hashedPassword,
+          phoneNumber: phoneNumber || null,
           role: 'WARGA',
           isActive: true
         },
@@ -273,62 +178,45 @@ export const register = async (req: Request, res: Response): Promise<any> => {
     } catch (error: any) {
       if (error.code === 'P2002') {
         const field = error.meta?.target?.[0];
-        return res.status(409).json({
-          success: false,
-          message: `${field} sudah terdaftar`,
-          code: 'DUPLICATE_FIELD'
-        });
+        return res.status(409).json({ success: false, message: `${field} sudah terdaftar`, code: 'DUPLICATE_FIELD' });
       }
       throw error;
     }
 
-    console.log(`✅ Registration successful: ${newUser.fullName} (${newUser.email})`);
-
     return res.status(201).json({
       success: true,
-      message: 'Registrasi berhasil! Silakan login dengan email dan password Anda.',
+      message: 'Registrasi berhasil! Silakan login.',
       data: {
         id: newUser.id.toString(),
         name: newUser.fullName,
         email: newUser.email,
-        role: newUser.role
+        role: newUser.role,
+        wilayahId: null
       }
     });
 
   } catch (error: any) {
-    console.error('🔥 Critical error during registration:', {
-      message: error.message,
-      email: req.body.email
-    });
-
     return res.status(500).json({
       success: false,
-      message: 'Kesalahan server. Coba lagi nanti.',
+      message: 'Kesalahan server.',
       code: 'INTERNAL_SERVER_ERROR',
       ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
 
-/**
- * ============================================================================
- * VERIFY TOKEN Endpoint
- * ============================================================================
- * POST /auth/verify
- * Headers: Authorization: Bearer <TOKEN>
- * Response: { success: true, message: string, user: {...} }
- * 
- * Used by frontend to check if token is still valid
- */
 export const verifyToken = async (req: Request, res: Response): Promise<any> => {
+  console.log("\n================ VERIFY TOKEN ================");
+  console.log("Method:", req.method);
+  console.log("JWT_SECRET exists:", !!JWT_SECRET);
+
   try {
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    const cookieToken = (req as any).cookies?.token;
+    const token = authHeader?.split(' ')[1] || req.cookies?.token;
 
-    const finalToken = token || cookieToken;
+    console.log("Token exists:", !!token);
 
-    if (!finalToken) {
+    if (!token) {
       return res.status(401).json({
         success: false,
         message: 'Token tidak ditemukan',
@@ -336,87 +224,92 @@ export const verifyToken = async (req: Request, res: Response): Promise<any> => 
       });
     }
 
+    let decoded: any;
     try {
-      const decoded = jwt.verify(finalToken, JWT_SECRET);
-
-      console.log(`✅ Token verified untuk: ${(decoded as any).email}`);
-
-      return res.json({
-        success: true,
-        message: 'Token valid',
-        user: {
-          id: (decoded as any).id,
-          email: (decoded as any).email,
-          name: (decoded as any).fullName,
-          role: (decoded as any).role,
-        }
-      });
-    } catch (error: any) {
-      let errorCode = 'INVALID_TOKEN';
-      if (error.name === 'TokenExpiredError') {
-        errorCode = 'TOKEN_EXPIRED';
-      }
-
-      console.error(`❌ Token verification failed: ${error.message}`);
-
+      decoded = jwt.verify(token, JWT_SECRET!);
+    } catch (jwtError: any) {
+      console.error("❌ JWT Error:", jwtError.name);
       return res.status(401).json({
         success: false,
-        message: 'Token tidak valid atau kadaluarsa',
-        code: errorCode
+        message: jwtError.name === 'TokenExpiredError' ? 'Token kadaluarsa' : 'Token tidak valid',
+        code: jwtError.name === 'TokenExpiredError' ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN'
       });
     }
 
+    console.log("✅ Verified:", decoded.email, decoded.role);
+
+    return res.json({
+      success: true,
+      message: 'Token valid',
+      user: {
+        id: decoded.id,
+        email: decoded.email,
+        name: decoded.fullName,
+        role: decoded.role,
+      }
+    });
+
   } catch (error: any) {
-    console.error('❌ Verify token error:', error.message);
+    console.error("❌ UNEXPECTED ERROR:", error.name, error.message);
     return res.status(500).json({
       success: false,
       message: 'Kesalahan server',
-      code: 'INTERNAL_SERVER_ERROR'
+      code: 'INTERNAL_SERVER_ERROR',
+      detail: error.message
     });
   }
 };
 
-/**
- * ============================================================================
- * LOGOUT Endpoint
- * ============================================================================
- * POST /auth/logout
- * Headers: Authorization: Bearer <TOKEN>
- * Response: { success: true, message: string }
- * 
- * Logs user logout event and clears cookies
- */
 export const logout = async (req: Request, res: Response): Promise<any> => {
   try {
-    // Get user info dari token untuk logging
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
     if (token) {
       try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        console.log(`\n🚪 ${(decoded as any).fullName} (${(decoded as any).email}) logout sebagai ${(decoded as any).role}`);
-      } catch (e) {
-        // Token might be invalid, tetap lanjut logout
-      }
+        console.log(`\n🚪 ${(decoded as any).fullName} logout`);
+      } catch (e) {}
     }
 
-    // Clear httpOnly cookie
     res.clearCookie('token', { path: '/' });
-
-    return res.json({
-      success: true,
-      message: 'Logout berhasil. Session dihapus.',
-      code: 'LOGOUT_SUCCESS'
-    });
+    return res.json({ success: true, message: 'Logout berhasil.', code: 'LOGOUT_SUCCESS' });
 
   } catch (error: any) {
-    console.error('❌ Logout error:', error);
+    return res.status(500).json({ success: false, message: 'Kesalahan server', code: 'INTERNAL_SERVER_ERROR' });
+  }
+};
 
-    return res.status(500).json({
-      success: false,
-      message: 'Kesalahan server',
-      code: 'INTERNAL_SERVER_ERROR'
+export const updateProfile = async (req: Request, res: Response): Promise<any> => {
+  const { userId, fullName, phoneNumber } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ success: false, message: 'userId harus diisi', code: 'INVALID_INPUT' });
+  }
+
+  try {
+    const updatedUser = await prisma.user.update({
+      where: { id: BigInt(userId as string) },
+      data: {
+        ...(fullName && { fullName }),
+        ...(phoneNumber !== undefined && { phoneNumber }),
+      }
     });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profil berhasil diperbarui',
+      data: {
+        fullName: updatedUser.fullName,
+        phoneNumber: updatedUser.phoneNumber,
+        address: null,
+        locationId: null
+      }
+    });
+  } catch (error: any) {
+    if (error.code === 'P2025') {
+      return res.status(404).json({ success: false, message: 'User tidak ditemukan', code: 'USER_NOT_FOUND' });
+    }
+    return res.status(500).json({ success: false, message: 'Gagal memperbarui profil', code: 'INTERNAL_SERVER_ERROR' });
   }
 };

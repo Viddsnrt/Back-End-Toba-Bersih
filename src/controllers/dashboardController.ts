@@ -27,18 +27,27 @@ export const getDashboardStats = async (req: Request, res: Response) => {
       prisma.report.count({ where: { status: 'DITINDAKLANJUTI' } }),
       prisma.truck.count(),
       prisma.truck.count({ where: { status: 'AVAILABLE' } }),
-      prisma.task.groupBy({ by: ['type'], _count: true }) as Promise<Array<{ type: string; _count: number }>>,
-      prisma.report.findMany({ where: { createdAt: { gte: sevenDaysAgo } }, select: { createdAt: true } }),
+      prisma.task.groupBy({ by: ['type'], _count: true }),
+      prisma.report.findMany({
+        where: { createdAt: { gte: sevenDaysAgo } },
+        select: { createdAt: true }
+      }),
+      // ✅ Fix: hapus select location — tidak ada relasi location di Report schema
+      // Gunakan field yang ada seperti description atau pelapor
       prisma.report.findMany({
         where: { status: 'SELESAI' },
-        select: { location: { select: { name: true } } }
+        select: { description: true }
       }),
-      prisma.report.findFirst({ orderBy: { createdAt: 'asc' }, select: { createdAt: true } })
+      prisma.report.findFirst({
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true }
+      })
     ]);
 
     const totalAduan = penugasanStats.find((p) => p.type === 'ADUAN')?._count || 0;
     const totalRutin = penugasanStats.find((p) => p.type === 'RUTIN')?._count || 0;
 
+    // Grafik 7 hari terakhir
     const grafikMap = new Map<string, number>();
     for (let i = 6; i >= 0; i--) {
       const day = new Date();
@@ -62,9 +71,14 @@ export const getDashboardStats = async (req: Request, res: Response) => {
       total
     }));
 
+    // ✅ Fix: karena location tidak ada, grouping berdasarkan description sebagai wilayah
+    // Atau tampilkan semua sebagai 'Tanpa Wilayah' jika description tidak relevan
     const wilayahMap = new Map<string, number>();
     for (const row of laporanSelesaiByLocation) {
-      const wilayahName = row.location?.name || 'Tanpa Wilayah';
+      // Ambil kata pertama dari description sebagai label wilayah, atau 'Tanpa Wilayah'
+      const wilayahName = row.description
+        ? row.description.slice(0, 30)
+        : 'Tanpa Wilayah';
       wilayahMap.set(wilayahName, (wilayahMap.get(wilayahName) || 0) + 1);
     }
 
@@ -79,7 +93,9 @@ export const getDashboardStats = async (req: Request, res: Response) => {
         (new Date().getTime() - new Date(firstReport.createdAt).getTime()) /
         (1000 * 60 * 60 * 24 * 30)
       );
-      rataLaporanBulanan = monthDiff > 0 ? Number((totalLaporan / monthDiff).toFixed(1)) : totalLaporan;
+      rataLaporanBulanan = monthDiff > 0
+        ? Number((totalLaporan / monthDiff).toFixed(1))
+        : totalLaporan;
     }
 
     res.json({
