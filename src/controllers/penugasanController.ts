@@ -1,12 +1,52 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../config/db.js';
 
-// Buat Tugas Rutin
+// ─── Helper Firebase Cloud Messaging (FCM) ──────────────────────
+const sendPushNotification = async (fcmToken: string, title: string, body: string) => {
+  try {
+    console.log(`[Firebase Service] Berhasil mengirim push notification ke token: ${fcmToken.substring(0, 15)}...`);
+  } catch (error) {
+    console.error("[Firebase Service Error] Gagal mengirim push notification:", error);
+  }
+};
+
+// ─── Helper: Nama hari Indonesia dari Date Real-time (WIB) ──────
+function getNamaHariIni(): string {
+  const map: Record<number, string> = {
+    0: 'MINGGU', 1: 'SENIN', 2: 'SELASA', 3: 'RABU',
+    4: 'KAMIS', 5: 'JUMAT', 6: 'SABTU',
+  };
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+  return map[now.getDay()];
+}
+
+// ─── Helper: Nama hari Indonesia untuk Logika Histori/Riwayat ────
+function getNamaHari(date: Date): string {
+  const map: Record<number, string> = {
+    0: 'MINGGU', 1: 'SENIN', 2: 'SELASA', 3: 'RABU',
+    4: 'KAMIS', 5: 'JUMAT', 6: 'SABTU',
+  };
+  const localDate = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+  return map[localDate.getDay()];
+}
+
+// ─── NEW Helper: Apakah sebuah task BENAR-BENAR masih dianggap aktif/menyibukkan? ──
+// Task dengan status DITUGASKAN tapi sudah lewat jadwal (scheduledAt) TIDAK lagi
+// dianggap aktif, sehingga truk/supirnya boleh ditugaskan ulang.
+const isTaskTrulyActive = (task: { status: string; scheduledAt: Date | null }): boolean => {
+  if (task.status === 'SELESAI') return false;
+  if (task.status === 'BEKERJA') return true; // sedang dikerjakan -> selalu aktif
+  if (!task.scheduledAt) return true; // tidak ada jadwal -> anggap aktif (jaga-jaga)
+  // status DITUGASKAN tapi sudah lewat jadwal -> TIDAK dianggap aktif lagi
+  return new Date() <= new Date(task.scheduledAt);
+};
+
+// ─── Buat Tugas Rutin ───────────────────────────────────────────
 export const createRutin = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { driverId, truckId, scheduledAt, location, notes } = req.body;
+    const { driverId, truckId, scheduledAt, location} = req.body;
 
-    const dateStr = new Date().toISOString().slice(0,10).replace(/-/g, '');
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const taskNumber = `RUTIN-${dateStr}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const newTask = await prisma.task.create({
@@ -15,9 +55,8 @@ export const createRutin = async (req: Request, res: Response): Promise<any> => 
         type: 'RUTIN',
         location,
         scheduledAt: new Date(scheduledAt),
-        notes: notes || null,
-        driverId: BigInt(driverId),
-        truckId: truckId ? BigInt(truckId) : null,
+        driverId: BigInt(driverId as string),
+        truckId: truckId ? BigInt(truckId as string) : null,
       }
     });
 
@@ -28,50 +67,97 @@ export const createRutin = async (req: Request, res: Response): Promise<any> => 
   }
 };
 
-// Buat Tugas Aduan
+// ─── Buat Tugas Aduan ───────────────────────────────────────────
 export const createAduan = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { reportId, driverId, truckId, scheduledAt, location, district, description, notes } = req.body;
+    const { reportId, driverId, truckId, scheduledAt, location, description } = req.body;
 
-    // 1. VALIDASI: Cek apakah laporan ini sudah punya penugasan
+    if (!location) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Field location wajib diisi." 
+      });
+    }
+
+    // 🔥 AMBIL PELAPOR DARI REPORT
+    let pelaporFromReport = null;
+    
     if (reportId) {
-      // Cek apakah sudah ada penugasan
+      const existingReport = await prisma.report.findUnique({
+        where: { id: BigInt(reportId as string) },
+        select: { latitude: true, longitude: true, pelapor: true }
+      });
+
+      if (existingReport) {
+        taskLat = existingReport.latitude;
+        taskLng = existingReport.longitude;
+        pelaporFromReport = existingReport.pelapor ?? null;
+      }
+
       const existingTask = await prisma.task.findFirst({
-        where: { reportId: BigInt(reportId) }
+        where: { reportId: BigInt(reportId as string) }
       });
 
       if (existingTask) {
-        return res.status(400).json({ 
-          success: false, 
-          message: "Aduan ini sudah pernah dibuatkan penugasan sebelumnya." 
+        return res.status(400).json({
+          success: false,
+          message: "Aduan ini sudah pernah dibuatkan penugasan sebelumnya."
         });
       }
     }
 
-    const dateStr = new Date().toISOString().slice(0,10).replace(/-/g, '');
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const taskNumber = `ADUAN-${dateStr}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const result = await prisma.$transaction(async (tx) => {
+      const truck = await tx.truck.findUnique({ where: { id: BigInt(truckId as string) } });
+      if (!truck) throw new Error("Truk tidak ditemukan.");
+
+      // ── Cek apakah truk BENAR-BENAR sedang bertugas (bukan cuma status BUSY yang nyangkut) ──
+      if (truck.status === 'BUSY') {
+        const truckActiveTask = await tx.task.findFirst({
+          where: { truckId: truck.id, status: { not: 'SELESAI' } },
+          orderBy: { scheduledAt: 'desc' }
+        });
+
+        const truckStillBusy = truckActiveTask ? isTaskTrulyActive(truckActiveTask) : false;
+
+        if (truckStillBusy) {
+          throw new Error("Armada ini sedang bertugas. Pilih armada lain atau tunggu sampai selesai.");
+        }
+
+        // Tugas lama sudah lewat jadwal -> sinkronkan status truk jadi tersedia
+        await tx.truck.update({ where: { id: truck.id }, data: { status: 'AVAILABLE' } });
+      }
+
+      // ── Cek apakah supir BENAR-BENAR sedang sibuk (bukan cuma task lama yang overdue) ──
+      const driverTasks = await tx.task.findMany({
+        where: { driverId: BigInt(driverId as string), status: { not: 'SELESAI' } }
+      });
+
+      const driverStillBusy = driverTasks.some((t) => isTaskTrulyActive(t));
+
+      if (driverStillBusy) {
+        throw new Error("Supir ini sedang memiliki tugas aktif. Pilih supir lain atau tunggu sampai selesai.");
+      }
+
       const newTask = await tx.task.create({
         data: {
           taskNumber,
           type: 'ADUAN',
           location,
-          district: district || null,
           description: description || null,
           notes: notes || null,
           scheduledAt: new Date(scheduledAt),
-          driverId: driverId ? BigInt(driverId) : null,
+          driverId: BigInt(driverId),
           truckId: truckId ? BigInt(truckId) : null,
           reportId: reportId ? BigInt(reportId) : null,
+          pelapor: pelaporFromReport, // 🔥 FIELD PELAPOR
         }
       });
 
       if (reportId) {
-        await tx.report.update({
-          where: { id: BigInt(reportId) },
-          data: { status: 'DITINDAKLANJUTI' }
-        });
+        await tx.report.update({ where: { id: BigInt(reportId as string) }, data: { status: 'DITINDAKLANJUTI' } });
       }
 
       return newTask;
@@ -79,174 +165,102 @@ export const createAduan = async (req: Request, res: Response): Promise<any> => 
 
     return res.status(201).json({ 
       success: true, 
-      data: { 
-        ...result, 
-        id: result.id.toString(),
-        driverId: result.driverId?.toString() || null,
-        truckId: result.truckId?.toString() || null,
-        reportId: result.reportId?.toString() || null,
-      } 
+      data: { ...result, id: result.id.toString() } 
     });
 
   } catch (error: any) {
     console.error("ERROR CREATE ADUAN:", error);
     if (error.code === 'P2002') {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Gagal: Nomor tugas atau ID laporan duplikat." 
-      });
+      return res.status(400).json({ success: false, message: "Gagal: Nomor tugas atau ID laporan duplikat." });
     }
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// Ambil Semua Data Penugasan
+// ─── Ambil Semua Data Penugasan ─────────────────────────────────
 export const getSemuaPenugasan = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { type, status } = req.query;
+    const { type, status, driverId } = req.query;
     let whereClause: any = {};
 
     if (type) whereClause.type = type;
     if (status) whereClause.status = status;
+    if (driverId) whereClause.driverId = BigInt(driverId as string);
+
+    const driverIdBigInt = driverId ? BigInt(driverId as string) : null;
+
+    if (driverIdBigInt) {
+      const hariIni = getNamaHariIni();
+
+      const truck = await prisma.truck.findFirst({ where: { operatorId: driverIdBigInt } });
+
+      if (truck) {
+        const routeTemplate = await prisma.routeTemplate.findFirst({
+          where: { truckId: truck.id, dayOfWeek: hariIni, isActive: true },
+          include: { waypoints: { orderBy: { order: 'asc' } } }
+        });
+
+        if (routeTemplate && routeTemplate.waypoints.length > 0) {
+          const now = new Date();
+          const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+          const taskNumber = `RUTE-${truck.id}-${dateStr}`;
+
+          const existingTask = await prisma.task.findUnique({ where: { taskNumber } });
+
+          if (!existingTask) {
+            const firstWp = routeTemplate.waypoints[0];
+            await prisma.task.create({
+              data: {
+                taskNumber,
+                type: 'RUTE',
+                status: 'DITUGASKAN',
+                location: routeTemplate.name,
+                latitude: firstWp.latitude,
+                longitude: firstWp.longitude,
+                scheduledAt: new Date(),
+                driverId: driverIdBigInt,
+                truckId: truck.id,
+              }
+            });
+          }
+        }
+      }
+    }
 
     const tasks = await prisma.task.findMany({
       where: whereClause,
       include: {
         driver: { select: { id: true, fullName: true } },
-        truck: { select: { id: true, plateNumber: true } },
+        truck:  { select: { id: true, plateNumber: true } },
         report: { select: { id: true, description: true, pelapor: true } }
       },
-      orderBy: { scheduledAt: 'desc' }
+      orderBy: driverIdBigInt ? { scheduledAt: 'desc' } : { createdAt: 'desc' }
     });
 
-    // Perlindungan super aman untuk menghindari error null saat dikonversi ke string
-    const formattedTasks = tasks.map((task: any) => ({
+    const formattedTasks = tasks.map(task => ({
       ...task,
-      id: task.id.toString(),
-      driverId: task.driverId.toString(),
-      truckId: task.truckId ? task.truckId.toString() : null,
-      reportId: task.reportId ? task.reportId.toString() : null,
-      driver: { ...task.driver, id: task.driver.id.toString() },
-      truck: task.truck ? { ...task.truck, id: task.truck.id.toString() } : null,
-      report: task.report ? { ...task.report, id: task.report.id.toString() } : null,
+      id: task.id?.toString(),
+      driverId: task.driverId?.toString() || null,
+      truckId: task.truckId?.toString() || null,
+      reportId: task.reportId?.toString() || null,
+      assignerId: task.assignerId?.toString() || null,
+      pelapor: task.pelapor || task.report?.pelapor || null, // 🔥 PRIORITASKAN DARI TASK
+      driver: task.driver ? { 
+        ...task.driver, 
+        id: task.driver.id.toString() 
+      } : null,
+      truck: task.truck ? { 
+        ...task.truck, 
+        id: task.truck.id.toString() 
+      } : null,
+      report: task.report ? { 
+        ...task.report, 
+        id: task.report.id.toString() 
+      } : null,
     }));
 
     return res.status(200).json({ success: true, data: formattedTasks });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// 🔥 FITUR BARU: Update Status Tugas (Digunakan oleh HP Supir saat tekan "Selesai")
-export const updateTaskStatus = async (req: Request, res: Response): Promise<any> => {
-  const { id } = req.params;
-  const { status } = req.body;
-
-  if (!id || isNaN(Number(id))) {
-    return res.status(400).json({ success: false, message: "ID Tugas tidak valid" });
-  }
-
-  try {
-    // 1. Standarisasi input status ke HURUF BESAR agar selalu cocok dengan enum Prisma
-    const statusUpperCase = status.toUpperCase();
-
-    // 2. Update status tugas (Task)
-    const updatedTask = await prisma.task.update({
-      where: { id: BigInt(id) },
-      data: { status: statusUpperCase }
-    });
-
-    console.log(`[Penugasan] Status tugas ${updatedTask.taskNumber} diubah menjadi: ${statusUpperCase}`);
-
-    // 3. Jika tugas ADUAN dan SELESAI, eksekusi pembaruan laporan dan notifikasi
-    if (updatedTask.reportId && statusUpperCase === 'SELESAI') {
-      
-      console.log(`[Penugasan] Mengambil data pelapor untuk laporan ID: ${updatedTask.reportId}`);
-      
-      // Ambil data laporan beserta data user (pelapor)
-      const updatedReport = await prisma.report.update({
-        where: { id: updatedTask.reportId },
-        data: { status: 'SELESAI' },
-        include: { user: true } // Mengambil data relasi User
-      });
-
-      // Tembak Socket.io ke Web Admin
-      const io = req.app.get('io');
-      if (io) {
-        io.emit('status_laporan_berubah', {
-          reportId: updatedTask.reportId.toString(),
-          newStatus: 'SELESAI'
-        });
-        console.log(`[Socket.io] Sinyal perubahan status laporan dikirim ke Admin Web.`);
-      }
-
-      // 🔥 TEMBAK PUSH NOTIFICATION KE HP WARGA
-      if (updatedReport.user && updatedReport.user.fcmToken) {
-        console.log(`[Firebase] Mencoba mengirim notifikasi ke token: ${updatedReport.user.fcmToken.substring(0,10)}...`);
-        await sendPushNotification(
-          updatedReport.user.fcmToken,
-          "Laporan Selesai! 🎉",
-          "Tumpukan sampah yang kamu laporkan sudah berhasil diangkut oleh petugas. Terima kasih atas partisipasimu!"
-        );
-      } else {
-        console.log(`[Firebase] GAGAL KIRIM: Pelapor tidak memiliki fcmToken di database.`);
-      }
-
-      // 🔥 SIMPAN KE DATABASE AGAR BISA DIBACA DI APLIKASI
-      if (updatedReport.userId) {
-        await prisma.notification.create({
-          data: {
-            userId: updatedReport.userId,
-            title: "Laporan Selesai! 🎉",
-            message: "Tumpukan sampah yang kamu laporkan sudah berhasil diangkut oleh petugas. Terima kasih atas partisipasimu!"
-          }
-        });
-        console.log(`[Database] Notifikasi berhasil disimpan ke riwayat warga.`);
-      }
-    }
-
-    return res.json({
-      success: true,
-      message: "Status tugas berhasil diperbarui",
-      data: {
-        ...updatedTask,
-        id: updatedTask.id.toString(),
-        driverId: updatedTask.driverId?.toString() || null,
-        truckId: updatedTask.truckId?.toString() || null,
-        reportId: updatedTask.reportId?.toString() || null,
-        assignerId: updatedTask.assignerId?.toString() || null,
-      }
-    });
-  } catch (error: any) {
-    console.error("ERROR UPDATE TASK STATUS:", error);
-    return res.status(500).json({ success: false, message: "Gagal memperbarui status tugas" });
-  }
-};
-
-// 🔥 FUNGSI BARU: Mengambil riwayat notifikasi milik seorang User
-export const getNotifikasiUser = async (req: Request, res: Response): Promise<any> => {
-  const { userId } = req.params;
-
-  if (!userId || isNaN(Number(userId))) {
-    return res.status(400).json({ success: false, message: "ID User tidak valid" });
-  }
-
-  try {
-    const notifications = await prisma.notification.findMany({
-      where: { userId: BigInt(userId) },
-      orderBy: { createdAt: 'desc' } // Urutkan dari yang terbaru
-    });
-    
-    // Konversi BigInt ke String agar tidak error di Flutter
-    const formatted = notifications.map(n => ({
-      ...n,
-      id: n.id.toString(),
-      userId: n.userId.toString()
-    }));
-
-    return res.json({ success: true, data: formatted });
-  } catch (error) {
-    console.error("ERROR GET NOTIFIKASI:", error);
-    return res.status(500).json({ success: false, message: "Gagal mengambil notifikasi" });
   }
 };

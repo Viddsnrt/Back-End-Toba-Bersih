@@ -1,15 +1,34 @@
 import { Router } from 'express';
-import { createRutin, createAduan, getSemuaPenugasan } from '../controllers/penugasanController.js';
+import multer from 'multer';
+import { 
+  createRutin,
+  createAduan, 
+  getSemuaPenugasan, 
+  updateTaskStatus,
+  getNotifikasiUser,
+  deletePenugasan,
+  updatePenugasan
+} from '../controllers/penugasanController.js';
 
 const router = Router();
 
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+  }
+});
+
+// --- Endpoint Penugasan ---
 router.post('/aduan', createAduan);
 router.get('/', getSemuaPenugasan);
+router.put('/:id', updatePenugasan); 
 
-// Menambahkan endpoint PATCH untuk mengubah status dari HP Supir
-router.patch('/:id/status', updateTaskStatus); 
+router.patch('/:id/status', upload.array('photos', 5), updateTaskStatus);
 
-// 🔥 2. TAMBAHKAN ENDPOINT GET NOTIFIKASI DI SINI
 router.get('/notifikasi/user/:userId', getNotifikasiUser);
 
-export default router   ;
+// ✅ Hapus penugasan (reset truck + laporan otomatis)
+router.delete('/:id', deletePenugasan);
+
+export default router;

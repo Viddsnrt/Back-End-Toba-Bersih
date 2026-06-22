@@ -18,7 +18,7 @@ import dashboardRoutes from './routes/dashboardRoutes.js';
 import postsRoutes from './routes/beritaRoutes.js';
 import routeRoutes from './routes/Routeroutes.js';
 import usersRoutes from './routes/usersRoutes.js';
-import akunmanager from './routes/akunmasyarakatRoutes.js';
+import pelangganRoutes from './routes/pelangganRoute.js';
 import galleryRoutes from './routes/galleryRoutes.js';
 import edukasiRoutes from './routes/edukasiRoutes.js';
 import { sendEmail } from "./utils/sendEmail.js";
@@ -35,6 +35,10 @@ const PORT = process.env.PORT || 5000;
 app.use(cors({
   // 🔥 PERBAIKAN: Gunakan 'true' agar backend menerima request dari PORT berapapun (termasuk Flutter Web yang port-nya acak)
   origin: true, 
+
+  origin: ['http://localhost:3000', 'https://confoundedly-granitic-janetta.ngrok-free.dev',
+      'http://187.77.121.239:3001'
+  ], 
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
   credentials: true
@@ -56,10 +60,10 @@ const io = new Server(server, {
 app.set("io", io);
 
 io.on("connection", (socket) => {
-  console.log("📱 Klien terhubung:", socket.id);
+  console.log("Klien terhubung:", socket.id);
 
   socket.on("disconnect", () => {
-    console.log("❌ Klien terputus:", socket.id);
+    console.log("Klien terputus:", socket.id);
   });
 });
 
@@ -78,7 +82,7 @@ app.use('/api/rute', routeRoutes);
 app.use('/api/posts', postsRoutes);
 app.use('/api/wilayah', wilayahRoutes);
 app.use('/api/users', usersRoutes);
-app.use('/api/akun-masyarakat', akunmanager);
+app.use('/api/pelanggan', pelangganRoutes);
 app.use('/api/galleries', galleryRoutes);
 app.use('/api/edukasi', edukasiRoutes);
 app.use('/api/kabid', kabidRoutes);

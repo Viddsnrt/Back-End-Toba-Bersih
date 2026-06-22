@@ -39,12 +39,12 @@ const toBigIntParam = (value: string | string[] | undefined): bigint => {
 };
 
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371; // Radius bumi dalam kilometer
+  const R = 6371;
   const dLat = (lat2 - lat1) * (Math.PI / 180);
   const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a = 
+  const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * 
+    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
@@ -53,20 +53,17 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
 // --- CONTROLLERS ---
 
 export const getAllWilayah = async (req: Request, res: Response) => {
-  try {
-    const wilayah = await prisma.location.findMany({
-      where: { locationType: 'KECAMATAN' },
-      orderBy: { name: 'asc' }
-    });
+    try {
+        const wilayah = await prisma.location.findMany({
+          orderBy: { name: 'asc' }
+        });
 
     const formatted = wilayah.map(w => ({
       id: w.id.toString(),
       name: w.name,
       code: w.code,
       isActive: w.isActive,
-      population: w.population,
       address: w.address,
-      capacityVolume: w.capacityVolume,
       latitude: w.latitude.toString(),
       longitude: w.longitude.toString(),
       radius: w.radius,
@@ -96,9 +93,9 @@ export const getWilayahById = async (req: Request, res: Response) => {
       name: wilayah.name,
       code: wilayah.code,
       isActive: wilayah.isActive,
-      population: wilayah.population,
+      population: null,        // ✅ Fix
       address: wilayah.address,
-      capacityVolume: wilayah.capacityVolume,
+      capacityVolume: null,    // ✅ Fix
       latitude: wilayah.latitude.toString(),
       longitude: wilayah.longitude.toString(),
       radius: wilayah.radius,
@@ -114,10 +111,8 @@ export const getWilayahById = async (req: Request, res: Response) => {
 
 const generateNameFromAddress = (address: string): string => {
   if (!address) return 'Wilayah Tidak Diketahui';
-
   const addressParts = address.split(',');
   const firstPart = addressParts[0]?.trim();
-
   const keywords = ['kecamatan', 'kelurahan', 'desa', 'kota', 'camatan'];
   for (const keyword of keywords) {
     const index = firstPart.toLowerCase().indexOf(keyword);
@@ -125,21 +120,18 @@ const generateNameFromAddress = (address: string): string => {
       return firstPart.substring(index + keyword.length).trim();
     }
   }
-
   const villageMatch = firstPart.match(/(kelurahan|desa)\s+([^\d\s]+)/i);
-  if (villageMatch) {
-    return villageMatch[2].trim();
-  }
-
+  if (villageMatch) return villageMatch[2].trim();
   return firstPart.length > 50 ? firstPart.substring(0, 50) + '...' : firstPart;
 };
 
 export const createWilayah = async (req: Request, res: Response) => {
   try {
     const {
-      name, code, population, address,
-      capacityVolume, latitude, longitude, isActive, radius
+      name, code, address,
+      latitude, longitude, isActive, radius
     } = req.body;
+    // ✅ Fix: hapus population dan capacityVolume dari destructuring karena tidak ada di schema
 
     let finalName = name;
     if (!finalName && address) {
@@ -157,7 +149,6 @@ export const createWilayah = async (req: Request, res: Response) => {
     if (pLat === null || pLon === null || !isLatitudeValid(pLat) || !isLongitudeValid(pLon)) {
       return res.status(400).json({ error: 'Koordinat tidak valid' });
     }
-
     if (pLat === 0 && pLon === 0) {
       return res.status(400).json({ error: 'Koordinat wilayah tidak valid (0,0)' });
     }
@@ -165,20 +156,18 @@ export const createWilayah = async (req: Request, res: Response) => {
     const newWilayah = await prisma.location.create({
       data: {
         name: normalizedName,
-        locationType: 'KECAMATAN',
         code: code?.trim() || null,
-        population: parseOptionalInt(population),
         address: address || null,
-        capacityVolume: parseOptionalInt(capacityVolume),
         latitude: pLat,
         longitude: pLon,
         radius: parseOptionalInt(radius) || 5000,
         isActive: parseOptionalBoolean(isActive, true)
+        // ✅ Fix: hapus population, capacityVolume, capacity_volume — tidak ada di schema
       }
     });
 
-    res.status(201).json({ 
-      ...newWilayah, 
+    res.status(201).json({
+      ...newWilayah,
       id: newWilayah.id.toString(),
       latitude: newWilayah.latitude.toString(),
       longitude: newWilayah.longitude.toString(),
@@ -201,7 +190,6 @@ export const updateWilayah = async (req: Request, res: Response) => {
     const existingWilayah = await prisma.location.findUnique({
       where: { id: toBigIntParam(id) }
     });
-
     if (!existingWilayah) return res.status(404).json({ error: 'Wilayah tidak ditemukan' });
 
     const pLat = parseOptionalFloat(data.latitude);
@@ -216,18 +204,19 @@ export const updateWilayah = async (req: Request, res: Response) => {
       data: {
         name: data.name?.trim() || undefined,
         code: data.code !== undefined ? data.code?.trim() : undefined,
-        population: parseOptionalInt(data.population) ?? undefined,
         address: data.address !== undefined ? data.address : undefined,
-        capacityVolume: parseOptionalInt(data.capacityVolume) ?? undefined,
         latitude: pLat ?? undefined,
         longitude: pLon ?? undefined,
         radius: parseOptionalInt(data.radius) ?? undefined,
-        isActive: data.isActive !== undefined ? parseOptionalBoolean(data.isActive, existingWilayah.isActive) : undefined,
+        isActive: data.isActive !== undefined
+          ? parseOptionalBoolean(data.isActive, existingWilayah.isActive)
+          : undefined,
+        // ✅ Fix: hapus population dan capacityVolume — tidak ada di schema
       }
     });
 
-    res.json({ 
-      ...updated, 
+    res.json({
+      ...updated,
       id: updated.id.toString(),
       latitude: updated.latitude.toString(),
       longitude: updated.longitude.toString(),
@@ -279,13 +268,13 @@ export const checkLocationInWilayah = async (req: Request, res: Response) => {
     if (pLat === null || pLon === null) return res.status(400).json({ error: 'Koordinat diperlukan' });
 
     const wilayahList = await prisma.location.findMany({
-      where: { locationType: 'KECAMATAN', isActive: true }
+      where: { isActive: true }
     });
 
     const results = wilayahList
       .map(w => {
-        const distance = calculateDistance(pLat, pLon, w.latitude, w.longitude);
-        const radiusInKm = (w.radius || 5000) / 1000; 
+        const distance = calculateDistance(pLat, pLon, Number(w.latitude), Number(w.longitude));  // ✅ Fix: Number()
+        const radiusInKm = (w.radius || 5000) / 1000;
         return {
           id: w.id.toString(),
           name: w.name,
@@ -299,7 +288,7 @@ export const checkLocationInWilayah = async (req: Request, res: Response) => {
       inWilayah: results.length > 0,
       currentLocation: { latitude: pLat, longitude: pLon },
       wilayah: results,
-      message: results.length > 0 
+      message: results.length > 0
         ? `Lokasi berada di dalam wilayah: ${results.map(r => r.name).join(', ')}`
         : 'Lokasi berada di luar radius wilayah yang ditentukan'
     });
@@ -311,8 +300,8 @@ export const checkLocationInWilayah = async (req: Request, res: Response) => {
 
 export const getAllPolygons = async (req: Request, res: Response) => {
   try {
-    const polygons = await prisma.location.findMany({
-      where: { locationType: 'KECAMATAN', isActive: true },
+  const polygons = await prisma.location.findMany({
+    where: { isActive: true },
       select: {
         id: true,
         name: true,
@@ -338,27 +327,27 @@ export const getAllPolygons = async (req: Request, res: Response) => {
   }
 };
 
-// 🔥 TAMBAHKAN: Endpoint validasi data wilayah
 export const validateWilayahData = async (req: Request, res: Response) => {
   try {
     const wilayah = await prisma.location.findMany({
-      where: { locationType: 'KECAMATAN' }
+      orderBy: { name: 'asc' }
     });
-    
+
     const validationResults = wilayah.map(w => ({
       id: w.id.toString(),
       name: w.name,
-      isValid: w.latitude !== 0 && w.longitude !== 0 && (w.radius || 0) > 0,
+      // ✅ Fix: gunakan Number() untuk konversi Decimal sebelum dibandingkan dengan number
+      isValid: Number(w.latitude) !== 0 && Number(w.longitude) !== 0 && (w.radius || 0) > 0,
       latitude: w.latitude,
       longitude: w.longitude,
       radius: w.radius,
       issues: [
-        w.latitude === 0 ? 'Latitude 0' : null,
-        w.longitude === 0 ? 'Longitude 0' : null,
+        Number(w.latitude) === 0 ? 'Latitude 0' : null,
+        Number(w.longitude) === 0 ? 'Longitude 0' : null,
         !w.radius || w.radius < 1000 ? 'Radius terlalu kecil' : null
       ].filter(Boolean)
     }));
-    
+
     res.json({
       success: true,
       total: wilayah.length,
@@ -367,9 +356,6 @@ export const validateWilayahData = async (req: Request, res: Response) => {
       data: validationResults
     });
   } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
