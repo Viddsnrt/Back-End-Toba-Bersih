@@ -4,8 +4,11 @@ import {
   register, 
   verifyToken, 
   logout, 
-  updateProfile  // ✅ Ditambahkan dari versi mobile
+  updateProfile,
+  getProfile
+  // ✅ Ditambahkan dari versi mobile
 } from '../controllers/authController.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -21,5 +24,6 @@ router.post('/logout', logout);
 
 // ✅ Endpoint update profil (dari versi mobile)
 router.put('/update-profile', updateProfile);
+router.get("/me", authenticateToken, getProfile);
 
 export default router;

@@ -250,7 +250,7 @@ export const getSemuaTruk = async (req: Request, res: Response): Promise<any> =>
           status: effectiveStatus,
           operatorId: truk.operatorId ? truk.operatorId.toString() : null,
           operator: truk.operator ? { ...truk.operator, id: truk.operator.id.toString() } : null,
-          lastLocation: truk.lastLocation ?? null
+          // lastLocation: truk.lastLocation ?? null
         };
       })
     );
@@ -270,7 +270,7 @@ export const getSemuaTruk = async (req: Request, res: Response): Promise<any> =>
 
 export const addTruk = async (req: Request, res: Response): Promise<any> => {
   // FIX: Tidak terima 'status' dari body saat create — selalu AVAILABLE
-  const { plateNumber, operatorId, lastLocation, unitCode, brand, truckType } = req.body;
+  const { plateNumber, operatorId, unitCode, brand, truckType } = req.body;
 
   try {
     const existingTruk = await prisma.truck.findUnique({ where: { plateNumber } });
@@ -297,8 +297,7 @@ export const addTruk = async (req: Request, res: Response): Promise<any> => {
         unitCode,
         brand,
         truckType,
-        status: 'AVAILABLE', // FIX: Selalu AVAILABLE saat create
-        lastLocation: lastLocation || '',
+        status: 'AVAILABLE', 
         operatorId: operatorId ? BigInt(operatorId as string) : null
       }
     });
@@ -311,7 +310,7 @@ export const addTruk = async (req: Request, res: Response): Promise<any> => {
 
 export const updateTruk = async (req: Request, res: Response): Promise<any> => {
   const { id } = req.params;
-  const { plateNumber, operatorId, status, lastLocation, unitCode, brand, truckType } = req.body;
+  const { plateNumber, operatorId, status, unitCode, brand, truckType } = req.body;
 
   try {
     const truckId = BigInt(id as string);
@@ -366,7 +365,6 @@ export const updateTruk = async (req: Request, res: Response): Promise<any> => {
       (brand !== undefined && brand !== existingTruk.brand) ||
       (truckType !== undefined && truckType !== existingTruk.truckType) ||
       (finalStatus !== undefined && finalStatus !== existingTruk.status) ||
-      (lastLocation !== undefined && lastLocation !== existingTruk.lastLocation) ||
       (newOperatorId?.toString() !== existingTruk.operatorId?.toString());
 
     if (!hasChanges) {
@@ -384,7 +382,6 @@ export const updateTruk = async (req: Request, res: Response): Promise<any> => {
         brand,
         truckType,
         status: finalStatus,
-        lastLocation: lastLocation,
         operatorId: operatorId ? BigInt(operatorId as string) : null
       }
     });

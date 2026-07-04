@@ -120,12 +120,41 @@ export const login = async (req: Request, res: Response): Promise<any> => {
 };
 
 export const register = async (req: Request, res: Response): Promise<any> => {
-  const { fullName, email, password, passwordConfirm, phoneNumber } = req.body;
+  const { fullName, email, password, passwordConfirm, phoneNumber,alamat,locationId,jenisUsaha } = req.body;
 
-  try {
-    if (!fullName || !email || !password) {
-      return res.status(400).json({ success: false, message: 'Nama lengkap, email, dan password harus diisi', code: 'INVALID_INPUT' });
-    }
+try {
+
+  if (!fullName || !email || !password) {
+    return res.status(400).json({
+      success: false,
+      message: 'Nama lengkap, email, dan password harus diisi',
+      code: 'INVALID_INPUT'
+    });
+  }
+
+  if (!alamat) {
+    return res.status(400).json({
+      success: false,
+      message: 'Alamat harus diisi',
+      code: 'ADDRESS_REQUIRED'
+    });
+  }
+
+  if (!locationId) {
+    return res.status(400).json({
+      success: false,
+      message: 'Wilayah harus dipilih',
+      code: 'LOCATION_REQUIRED'
+    });
+  }
+
+  if (!jenisUsaha) {
+    return res.status(400).json({
+      success: false,
+      message: 'Jenis pelanggan harus dipilih',
+      code: 'CUSTOMER_TYPE_REQUIRED'
+    });
+  }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
@@ -144,6 +173,21 @@ export const register = async (req: Request, res: Response): Promise<any> => {
       return res.status(400).json({ success: false, message: 'Nama lengkap harus 3-100 karakter', code: 'INVALID_NAME' });
     }
 
+
+    const location = await prisma.location.findUnique({
+      where: {
+        id: BigInt(locationId)
+      }
+    });
+
+    if (!location) {
+      return res.status(404).json({
+        success: false,
+        message: "Wilayah tidak ditemukan",
+        code: "LOCATION_NOT_FOUND"
+      });
+    }
+
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
       return res.status(409).json({ success: false, message: 'Email sudah terdaftar.', code: 'EMAIL_ALREADY_EXISTS' });
@@ -157,42 +201,80 @@ export const register = async (req: Request, res: Response): Promise<any> => {
     }
 
     let newUser;
+    let pelanggan;
+
     try {
-      newUser = await prisma.user.create({
-        data: {
-          fullName: fullName.trim(),
-          email: email.toLowerCase(),
-          passwordHash: hashedPassword,
-          phoneNumber: phoneNumber || null,
-          role: 'WARGA',
-          isActive: true
-        },
-        select: {
-          id: true,
-          fullName: true,
-          email: true,
-          role: true,
-          createdAt: true
-        }
+      const result = await prisma.$transaction(async (tx) => {
+
+        // ==========================
+        // 1. Buat User
+        // ==========================
+        const user = await tx.user.create({
+          data: {
+            fullName: fullName.trim(),
+            email: email.toLowerCase(),
+            passwordHash: hashedPassword,
+            phoneNumber: phoneNumber || null,
+            role: 'WARGA',
+            isActive: true,
+          },
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            role: true,
+            createdAt: true,
+          },
+        });
+
+        // ==========================
+        // 2. Buat Pelanggan
+        // ==========================
+        const pelanggan = await tx.pelanggan.create({
+          data: {
+            nama: fullName.trim(),
+            alamat,
+            jenisUsaha,
+            locationId: BigInt(locationId),
+            userId: user.id,
+          },
+        });
+
+        return {
+          user,
+          pelanggan,
+        };
       });
+
+      newUser = result.user;
+      pelanggan = result.pelanggan;
+
     } catch (error: any) {
       if (error.code === 'P2002') {
         const field = error.meta?.target?.[0];
-        return res.status(409).json({ success: false, message: `${field} sudah terdaftar`, code: 'DUPLICATE_FIELD' });
+        return res.status(409).json({
+          success: false,
+          message: `${field} sudah terdaftar`,
+          code: 'DUPLICATE_FIELD',
+        });
       }
+
       throw error;
     }
 
     return res.status(201).json({
       success: true,
-      message: 'Registrasi berhasil! Silakan login.',
+      message: "Registrasi berhasil! Silakan login.",
       data: {
         id: newUser.id.toString(),
         name: newUser.fullName,
         email: newUser.email,
         role: newUser.role,
-        wilayahId: null
-      }
+        phoneNumber: phoneNumber,
+        alamat: pelanggan.alamat,
+        jenisUsaha: pelanggan.jenisUsaha,
+        locationId: pelanggan.locationId.toString(),
+      },
     });
 
   } catch (error: any) {
@@ -311,5 +393,44 @@ export const updateProfile = async (req: Request, res: Response): Promise<any> =
       return res.status(404).json({ success: false, message: 'User tidak ditemukan', code: 'USER_NOT_FOUND' });
     }
     return res.status(500).json({ success: false, message: 'Gagal memperbarui profil', code: 'INTERNAL_SERVER_ERROR' });
+  }
+};
+export const getProfile = async (req: Request, res: Response): Promise<any> => {
+  try {
+    // id user berasal dari JWT
+    const userId = BigInt((req as any).user.id);
+
+    const user = await prisma.user.findUnique({
+      where: {
+        id: userId,
+      },
+      include: {
+        pelanggan: {
+          include: {
+            location: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User tidak ditemukan",
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: user,
+    });
+
+  } catch (error: any) {
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };

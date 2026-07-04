@@ -35,7 +35,7 @@ const PORT = process.env.PORT || 5000;
 app.use(cors({
   origin: ['http://localhost:3000', 'https://confoundedly-granitic-janetta.ngrok-free.dev',
       'http://187.77.121.239:3001'
-  ], 
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
   credentials: true

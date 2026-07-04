@@ -3,6 +3,21 @@ import { prisma, supabase } from '../config/db.js';
 import { sendEmail } from '../utils/sendEmail.js';
 import { validateWasteImage, QualityCheckError } from '../services/validationService.js';
 
+
+// helper hitung jarak (haversine, dalam KM) — dipakai untuk cek geofencing
+function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // radius bumi dalam km
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) *
+      Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 // ============================================================
 // GET SEMUA LAPORAN (Admin)
 // ============================================================
@@ -60,6 +75,50 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
           success: false,
           message: '⚠️ Email tidak valid! Silakan masukkan email yang benar untuk pemberitahuan status laporan.',
         });
+      }
+    }
+
+    // ✅ BARU: Validasi Wilayah (Geofencing)
+    // Laporan hanya boleh dikirim jika lokasi pelapor berada di dalam radius
+    // salah satu wilayah yang berstatus AKTIF.
+    const pLat = parseFloat(latitude);
+    const pLon = parseFloat(longitude);
+    const hasValidCoords = !isNaN(pLat) && !isNaN(pLon) && !(pLat === 0 && pLon === 0);
+
+    if (hasValidCoords) {
+      const activeWilayah = await prisma.location.findMany({
+        where: { isActive: true },
+      });
+
+      // Kalau belum ada wilayah aktif yang dikonfigurasi sama sekali,
+      // jangan blokir laporan (anggap admin belum setup wilayah).
+      if (activeWilayah.length > 0) {
+        let isCovered = false;
+        let nearest: { name: string; distance: number } | null = null;
+
+        for (const w of activeWilayah) {
+          const distance = calculateDistanceKm(pLat, pLon, Number(w.latitude), Number(w.longitude));
+          const radiusKm = (w.radius || 5000) / 1000;
+
+          if (distance <= radiusKm) {
+            isCovered = true;
+            break;
+          }
+
+          if (!nearest || distance < nearest.distance) {
+            nearest = { name: w.name, distance };
+          }
+        }
+
+        if (!isCovered) {
+          const distanceText = nearest ? nearest.distance.toFixed(2) : '0';
+          const namaWilayah = nearest ? nearest.name : 'wilayah aktif';
+
+          return res.status(400).json({
+            success: false,
+            message: `Laporan tidak dapat dikirim karena lokasi Anda berada ${distanceText} km dari kecamatan aktif terdekat (${namaWilayah}). Silakan kirim laporan saat berada di dalam radius wilayah yang dilayani.`,
+          });
+        }
       }
     }
 
@@ -147,10 +206,22 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
       },
     });
 
-    // Kirim email konfirmasi
-    if (email) {
-      try {
-        const emailContent = `
+   // ✅ Kirim response dulu — laporan sudah tersimpan, jangan sampai user
+// menunggu (atau dianggap gagal) hanya karena SMTP lambat/timeout.
+res.status(201).json({
+  success: true,
+  message: 'Laporan berhasil dikirim!',
+  data: {
+    ...dataBaru,
+    id: dataBaru.id.toString(),
+    userId: dataBaru.userId?.toString() || null,
+  },
+});
+
+// ✅ Kirim email di background, TIDAK di-await, tidak memblokir response.
+// Kalau gagal, cukup dicatat di log — tidak memengaruhi status laporan.
+if (email) {
+  const emailContent = `
 Halo ${pelapor || 'Pelapor'},
 
 Terima kasih telah melaporkan masalah lingkungan di Kabupaten Toba.
@@ -167,26 +238,14 @@ Terima kasih atas kontribusi Anda untuk lingkungan yang lebih bersih! 🌱
 ---
 Dinas Lingkungan Hidup
 Kabupaten Toba
-        `.trim();
+  `.trim();
 
-        await sendEmail(email, '✅ Laporan Sampah Diterima - DLH Toba', emailContent);
-        console.log(`📧 Email konfirmasi dikirim ke: ${email}`);
-      } catch (emailError) {
-        console.error('⚠️ Gagal kirim email konfirmasi:', emailError);
-      }
-    }
-
-    return res.status(201).json({
-      success: true,
-      message: 'Laporan berhasil dikirim!',
-      data: {
-        ...dataBaru,
-        id: dataBaru.id.toString(),
-        userId: dataBaru.userId?.toString() || null,
-        // ⚠️ CATATAN: Aktifkan baris di bawah jika kolom locationId sudah ada di schema Prisma
-        // locationId: (dataBaru as any).locationId?.toString() || null,
-      },
-    });
+  sendEmail(email, '✅ Laporan Sampah Diterima - DLH Toba', emailContent)
+    .then(() => console.log(`📧 Email konfirmasi dikirim ke: ${email}`))
+    .catch((emailError) =>
+      console.error('⚠️ Gagal kirim email konfirmasi (non-blocking):', emailError)
+    );
+}
   } catch (error: any) {
     console.error('❌ ERROR CREATE LAPORAN:', error.message);
 
