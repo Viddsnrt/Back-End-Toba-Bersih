@@ -97,7 +97,6 @@ model Truck {
   brand           String?
   truckType       String?           @map("truck_type")
   unitCode        String?           @map("unit_code")
-  lastLocation    String?           @map("last_location")
   locationHistory LocationHistory[]
   routeTemplates  RouteTemplate[]
   tasks           Task[]

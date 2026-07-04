@@ -3,8 +3,7 @@
   "version": "1.0.0",
   "description": "Backend Platform Sampah",
   "main": "dist/index.js",
-
-"scripts": {
+  "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsx watch src/index.ts",
     "build": "prisma generate && tsc",
@@ -14,12 +13,14 @@
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "@supabase/supabase-js": "^2.106.1",
+    "async": "^3.2.6",
     "axios": "^1.13.5",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
+    "firebase-admin": "^14.1.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
     "node-fetch": "^3.3.2",
