@@ -1,0 +1,7 @@
+services:
+  backend:
+    build: .
+    container_name: tobabersih-backend
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
