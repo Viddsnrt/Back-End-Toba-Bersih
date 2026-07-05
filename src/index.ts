@@ -35,13 +35,15 @@ const PORT = process.env.PORT || 5000;
 app.use(cors({
   origin: [
     'http://localhost:3000',
-    'http://187.77.125.243:3000'
+    'http://187.77.125.243:3000',
+    'http://tobabersih.tech:3000',
+    'https://tobabersih.tech',
+    'https://www.tobabersih.tech'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
-
 
 // ================= SOCKET.IO =================
 const server = http.createServer(app);
