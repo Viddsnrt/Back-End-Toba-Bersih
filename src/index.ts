@@ -33,15 +33,14 @@ const PORT = process.env.PORT || 5000;
 
 // 1. SETUP CORS YANG BENAR (Pindahkan ke sini, sebelum app.use rute)
 app.use(cors({
-  origin: ['http://localhost:3000', 'https://confoundedly-granitic-janetta.ngrok-free.dev',
-      'http://187.77.121.239:3001'
+  origin: [
+    'http://localhost:3000',
+    'http://187.77.125.243:3000'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
-
-
 
 
 // ================= SOCKET.IO =================
