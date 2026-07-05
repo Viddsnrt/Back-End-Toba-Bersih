@@ -172,13 +172,12 @@ export const getStatistikOperasional = async (req: Request, res: Response) => {
     // FIX: Report tidak punya locationId, dan Location tidak punya relasi ke Report.
     // Gunakan field 'district' dari Task untuk statistik per wilayah.
     const semuaTask = await prisma.task.findMany({
-      select: { district: true, status: true },
-      where: { district: { not: null } },
+      select: { location: true, status: true },
     });
 
     const wilayahMap = new Map<string, number>();
     for (const task of semuaTask) {
-      const nama = task.district ?? 'Tanpa Wilayah';
+      const nama = task.location || 'Tanpa Wilayah';
       wilayahMap.set(nama, (wilayahMap.get(nama) || 0) + 1);
     }
 
@@ -279,7 +278,7 @@ export const getPetaAduan = async (req: Request, res: Response) => {
     });
 
     const kecamatanList = await prisma.location.findMany({
-      where: { locationType: 'KECAMATAN' },
+      where: { isActive: true },
       select: { name: true, code: true, latitude: true, longitude: true },
     });
 
@@ -504,7 +503,7 @@ export const exportRekapLaporan = async (req: Request, res: Response) => {
 export const getFilterOptions = async (_req: Request, res: Response) => {
   try {
     const kecamatan = await prisma.location.findMany({
-      where: { locationType: 'KECAMATAN' },
+      where: { isActive: true },
       select: { name: true },
       orderBy: { name: 'asc' },
     });

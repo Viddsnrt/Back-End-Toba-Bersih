@@ -91,10 +91,11 @@ export const createUser = async (req: Request, res: Response) => {
   }
 };
 
-// ================= UPDATE USER =================
+// UPDATE USER
 export const updateUser = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
     const { fullName, email, phoneNumber, region } = req.body;
 
     if (!id) {
@@ -105,14 +106,8 @@ export const updateUser = async (req: Request, res: Response) => {
     }
 
     const user = await prisma.user.update({
-      where: {
-        id: BigInt(id),
-      },
-      data: {
-        fullName,
-        email,
-        phoneNumber,
-      },
+      where: { id: BigInt(id) },
+      data: { fullName, email, phoneNumber },
     });
 
     const responseData = {
@@ -135,10 +130,10 @@ export const updateUser = async (req: Request, res: Response) => {
   }
 };
 
-// ================= DELETE USER =================
 export const deleteUser = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
 
     if (!id) {
       return res.status(400).json({
@@ -147,11 +142,7 @@ export const deleteUser = async (req: Request, res: Response) => {
       });
     }
 
-    await prisma.user.delete({
-      where: {
-        id: BigInt(id),
-      },
-    });
+    await prisma.user.delete({ where: { id: BigInt(id) } });
 
     res.json({
       success: true,

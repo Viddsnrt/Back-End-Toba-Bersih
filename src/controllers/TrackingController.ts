@@ -137,7 +137,9 @@ export const getTrukAktif = async (req: Request, res: Response): Promise<any> =>
         currentLat:   lastLoc ? Number(lastLoc.latitude)   : (truk.currentLat  ? Number(truk.currentLat)  : null),
         currentLong:  lastLoc ? Number(lastLoc.longitude)  : (truk.currentLong ? Number(truk.currentLong) : null),
         lastPing:     lastLoc?.createdAt?.toISOString() ?? truk.lastPing?.toISOString() ?? null,
-        lastLocation: truk.lastLocation,
+        lastLocation: lastLoc
+          ? { lat: Number(lastLoc.latitude), lng: Number(lastLoc.longitude), timestamp: lastLoc.createdAt.toISOString() }
+          : null,
         operator: truk.operator
           ? { id: truk.operator.id.toString(), fullName: truk.operator.fullName, phoneNumber: truk.operator.phoneNumber }
           : null,
