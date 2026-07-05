@@ -358,21 +358,20 @@ export const exportRekapLaporan = async (req: Request, res: Response) => {
       filename = `rekap_armada_${new Date().toISOString().slice(0, 10)}`;
 
     } else if (type === 'wilayah') {
-      // FIX: Report tidak punya locationId, Location tidak punya relasi ke Report.
-      // Gunakan field 'district' dari Task untuk rekap per wilayah.
-      const semuaTask = await prisma.task.findMany({
-        select: { district: true, status: true },
-      });
+          // Task tidak punya field 'district', gunakan 'location' (String) sebagai wilayah.
+          const semuaTask = await prisma.task.findMany({
+            select: { location: true, status: true },
+          });
 
-      const wilayahMap = new Map<string, { total: number; selesai: number; pending: number }>();
-      for (const task of semuaTask) {
-        const nama = task.district ?? 'Tanpa Wilayah';
-        const existing = wilayahMap.get(nama) ?? { total: 0, selesai: 0, pending: 0 };
-        existing.total += 1;
-        if (task.status === 'SELESAI') existing.selesai += 1;
-        if (task.status === 'DITUGASKAN') existing.pending += 1;
-        wilayahMap.set(nama, existing);
-      }
+          const wilayahMap = new Map<string, { total: number; selesai: number; pending: number }>();
+          for (const task of semuaTask) {
+            const nama = task.location || 'Tanpa Wilayah';
+            const existing = wilayahMap.get(nama) ?? { total: 0, selesai: 0, pending: 0 };
+            existing.total += 1;
+            if (task.status === 'SELESAI') existing.selesai += 1;
+            if (task.status === 'DITUGASKAN') existing.pending += 1;
+            wilayahMap.set(nama, existing);
+          }
 
       data = Array.from(wilayahMap.entries()).map(([nama, stat]) => ({
         'Kecamatan': nama,
