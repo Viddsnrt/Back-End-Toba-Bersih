@@ -482,6 +482,46 @@ export const getJadwalRute = async (req: Request, res: Response): Promise<any> =
 };
 
 // ============================================================
+// GET: Truk milik supir yang sedang login
+// ------------------------------------------------------------
+// Dipakai oleh layar "Tugas Harian" (daily_route_screen.dart) di
+// awal alur — supir buka layar, app panggil endpoint ini dulu untuk
+// tahu truckId miliknya sebelum bisa mulai-kerja / ambil progress
+// waypoint. Truk ↔ operator relasinya 1-1 lewat Truck.operatorId.
+// ============================================================
+export const getTruckSaya = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = (req as any).user?.id;
+
+    const truk = await prisma.truck.findUnique({
+      where: { operatorId: BigInt(userId) },
+    });
+
+    if (!truk) {
+      return res.status(404).json({
+        success: false,
+        message: 'Anda belum terhubung ke truk manapun. Hubungi admin untuk mengatur ini.',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        id:          truk.id.toString(),
+        plateNumber: truk.plateNumber,
+        status:      truk.status,
+        brand:       truk.brand,
+        truckType:   truk.truckType,
+        unitCode:    truk.unitCode,
+      },
+    });
+  } catch (error: any) {
+    console.error('getTruckSaya error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ============================================================
 // POST: Supir kirim lokasi GPS dari HP
 // ============================================================
 export const updateLokasiTruk = async (req: Request, res: Response): Promise<any> => {
@@ -742,6 +782,107 @@ export const mulaiKerja = async (req: Request, res: Response): Promise<any> => {
 };
 
 // ============================================================
+// POST: Supir tandai 1 titik/waypoint selesai (manual)
+// ------------------------------------------------------------
+// Dipakai oleh tombol "SELESAIKAN TITIK INI" di daily_route_screen.dart.
+// Beda dengan auto-update di updateLokasiTruk (yang jalan otomatis
+// tiap kirim GPS): ini eksplisit, sekali klik, dan divalidasi radius
+// di sisi FE (jarak ke titik <= 50m baru tombolnya aktif) — di sisi
+// BE kita tetap validasi ulang jaraknya supaya tidak asal klik.
+// ============================================================
+const RADIUS_SELESAIKAN_TITIK = 50; // meter, sama seperti FE
+
+export const selesaikanWaypoint = async (req: Request, res: Response): Promise<any> => {
+  const { truckId, waypointId, latitude, longitude } = req.body;
+
+  if (!truckId || !waypointId || latitude === undefined || longitude === undefined) {
+    return res.status(400).json({
+      success: false,
+      message: 'truckId, waypointId, latitude, longitude wajib diisi',
+    });
+  }
+
+  try {
+    const waypoint = await prisma.routeWaypoint.findUnique({
+      where:   { id: BigInt(waypointId) },
+      include: { route: { include: { waypoints: { orderBy: { order: 'asc' } } } } },
+    });
+
+    if (!waypoint || waypoint.route.truckId !== BigInt(truckId)) {
+      return res.status(404).json({ success: false, message: 'Titik rute tidak ditemukan untuk truk ini' });
+    }
+
+    if (waypoint.status === 'SELESAI') {
+      return res.status(400).json({ success: false, message: 'Titik ini sudah ditandai selesai sebelumnya' });
+    }
+
+    const jarakMeter = hitungJarak(
+      Number(latitude), Number(longitude),
+      waypoint.latitude, waypoint.longitude
+    ) * 1000;
+
+    if (jarakMeter > RADIUS_SELESAIKAN_TITIK) {
+      return res.status(400).json({
+        success: false,
+        message: `Anda masih ${Math.round(jarakMeter)}m dari "${waypoint.name}". Maksimal ${RADIUS_SELESAIKAN_TITIK}m untuk bisa menyelesaikan titik ini.`,
+      });
+    }
+
+    await prisma.routeWaypoint.update({
+      where: { id: waypoint.id },
+      data:  { status: 'SELESAI', arrivedAt: new Date() },
+    });
+
+    // Titik berikutnya (order + 1) yang masih BELUM_DILALUI → jadi target baru
+    const wpBerikutnya = waypoint.route.waypoints.find(
+      wp => wp.order === waypoint.order + 1 && wp.status === 'BELUM_DILALUI'
+    );
+
+    if (wpBerikutnya) {
+      await prisma.routeWaypoint.update({
+        where: { id: wpBerikutnya.id },
+        data:  { status: 'SEDANG_DITUJU' },
+      });
+    }
+
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('waypoint_update', {
+        truckId: truckId.toString(),
+        waypointSelesai: {
+          id:    waypoint.id.toString(),
+          nama:  waypoint.name,
+          order: waypoint.order,
+        },
+        waypointBerikutnya: wpBerikutnya
+          ? { id: wpBerikutnya.id.toString(), nama: wpBerikutnya.name, order: wpBerikutnya.order }
+          : null,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: wpBerikutnya
+        ? `Titik "${waypoint.name}" selesai. Lanjut ke "${wpBerikutnya.name}".`
+        : `Titik "${waypoint.name}" selesai. Semua titik sudah dikunjungi — silakan selesaikan rute hari ini.`,
+      data: {
+        waypointSelesai: {
+          id:    waypoint.id.toString(),
+          nama:  waypoint.name,
+          order: waypoint.order,
+        },
+        waypointBerikutnya: wpBerikutnya
+          ? { id: wpBerikutnya.id.toString(), nama: wpBerikutnya.name, order: wpBerikutnya.order }
+          : null,
+      },
+    });
+  } catch (error: any) {
+    console.error('selesaikanWaypoint error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ============================================================
 // POST: Supir selesai kerja → status truk AVAILABLE
 // ============================================================
 export const selesaiKerja = async (req: Request, res: Response): Promise<any> => {
@@ -879,30 +1020,31 @@ export const getSemuaSupir = async (req: Request, res: Response): Promise<any> =
 };
 
 // ============================================================
-// GET: Pelanggan lihat truk di wilayahnya (via locationId)
+// GET: Pelanggan lihat SEMUA truk yang bertugas hari ini
+// ------------------------------------------------------------
+// Awalnya endpoint ini mencari data Pelanggan (via userId) untuk
+// tahu wilayah/locationId warga, lalu hanya mengembalikan 1 truk
+// yang jadwalnya cocok dengan wilayah itu. Masalahnya data
+// Pelanggan banyak yang belum lengkap/tidak ada, jadi warga selalu
+// dapat 404 "Data pelanggan tidak ditemukan" walau truk sedang
+// bertugas.
+//
+// Sekarang disederhanakan: tampilkan SEMUA truk yang punya
+// RouteTemplate aktif untuk hari ini, apapun wilayahnya — tidak
+// lagi bergantung pada data Pelanggan sama sekali. Responsnya jadi
+// list (array), bukan objek tunggal.
 // ============================================================
 export const getTrukByWilayah = async (req: Request, res: Response): Promise<any> => {
   try {
-    const userId = (req as any).user?.id;
-
-    const pelanggan = await prisma.pelanggan.findUnique({
-      where:   { userId: BigInt(userId) },
-      include: { location: { select: { id: true, name: true } } },
-    });
-
-    if (!pelanggan) {
-      return res.status(404).json({ success: false, message: 'Data pelanggan tidak ditemukan' });
-    }
-
     const hariIni = getNamaHariIni();
 
-    const rute = await prisma.routeTemplate.findFirst({
+    const ruteList = await prisma.routeTemplate.findMany({
       where: {
-        locationId: pelanggan.locationId,
-        dayOfWeek:  hariIni,
-        isActive:   true,
+        dayOfWeek: hariIni,
+        isActive:  true,
       },
       include: {
+        location: { select: { id: true, name: true } },
         truck: {
           include: {
             operator: { select: { fullName: true } },
@@ -915,25 +1057,26 @@ export const getTrukByWilayah = async (req: Request, res: Response): Promise<any
         },
         waypoints: { orderBy: { order: 'asc' } },
       },
+      orderBy: { location: { name: 'asc' } },
     });
 
-    if (!rute) {
+    if (ruteList.length === 0) {
       return res.status(404).json({
         success: false,
-        message: `Tidak ada armada yang bertugas di wilayah ${pelanggan.location.name} hari ini`,
+        message: 'Belum ada armada yang dijadwalkan bertugas hari ini',
       });
     }
 
-    const truk          = rute.truck;
-    const lastLoc       = truk.locationHistory[0] ?? null;
-    const totalWaypoint = rute.waypoints.length;
-    const selesai       = rute.waypoints.filter(wp => wp.status === 'SELESAI').length;
-    const sedangDituju  = rute.waypoints.find(wp => wp.status === 'SEDANG_DITUJU');
+    const data = ruteList.map((rute) => {
+      const truk          = rute.truck;
+      const lastLoc       = truk.locationHistory[0] ?? null;
+      const totalWaypoint = rute.waypoints.length;
+      const selesai       = rute.waypoints.filter(wp => wp.status === 'SELESAI').length;
+      const sedangDituju  = rute.waypoints.find(wp => wp.status === 'SEDANG_DITUJU');
 
-    return res.status(200).json({
-      success: true,
-      data: {
-        wilayah:    pelanggan.location.name,
+      return {
+        truckId:    truk.id.toString(),
+        wilayah:    rute.location.name,
         armada:     truk.plateNumber,
         supir:      truk.operator?.fullName ?? '-',
         rute:       rute.name,
@@ -954,8 +1097,10 @@ export const getTrukByWilayah = async (req: Request, res: Response): Promise<any
           status:    wp.status,
           arrivedAt: wp.arrivedAt?.toISOString() ?? null,
         })),
-      },
+      };
     });
+
+    return res.status(200).json({ success: true, data });
   } catch (error: any) {
     console.error('getTrukByWilayah error:', error);
     return res.status(500).json({ success: false, message: error.message });

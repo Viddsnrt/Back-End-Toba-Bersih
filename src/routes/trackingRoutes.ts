@@ -7,9 +7,11 @@ const router = Router();
 router.use(authenticateToken);
 
 // ── Khusus SUPIR — update posisi & status kerja milik diri sendiri ──
+router.get('/truk-saya',       authorizeRole(['OPERATOR']),                    trackingController.getTruckSaya);
 router.post('/update-lokasi',  authorizeRole(['OPERATOR']),                    trackingController.updateLokasiTruk);
 router.post('/mulai-kerja',    authorizeRole(['OPERATOR']),                    trackingController.mulaiKerja);
 router.post('/selesai-kerja',  authorizeRole(['OPERATOR']),                    trackingController.selesaiKerja);
+router.post('/selesaikan-waypoint', authorizeRole(['OPERATOR']),               trackingController.selesaikanWaypoint);
 
 // ── Monitoring — ADMIN & KABID ──
 router.get('/truk-aktif',          authorizeRole(['ADMIN', 'KABID']),          trackingController.getTrukAktif);

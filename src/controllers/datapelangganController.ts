@@ -18,11 +18,13 @@ export const getPelanggan = async (req: any, res: any) => {
     const page  = Math.max(1, parseInt(req.query.page as string)  || 1);
     const limit = Math.max(1, parseInt(req.query.limit as string) || 12);
     const skip  = (page - 1) * limit;
-    const search = (req.query.search as string) ?? "";
-    const userId = req.query.userId as string;
+    const search     = (req.query.search as string) ?? "";
+    const userId     = req.query.userId as string;
+    const locationId = req.query.locationId as string; // ✅ TAMBAHKAN: baca locationId dari query
 
     const where: any = {
-      ...(userId ? { userId: BigInt(userId) } : {}),
+      ...(userId     ? { userId: BigInt(userId) }         : {}),
+      ...(locationId ? { locationId: BigInt(locationId) } : {}), // ✅ TAMBAHKAN: filter by locationId
       ...(search
         ? {
             OR: [
