@@ -1,25 +1,7 @@
 import type { Request, Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../config/db.js';   // ← pakai yang sudah dikonfigurasi benar
 
-// FIX: Jangan pass 'ws' sebagai transport ke Supabase realtime
-// Supabase di Node.js sudah otomatis menggunakan WebSocket bawaan sejak versi terbaru
-// Kalau kamu butuh ws secara eksplisit, gunakan globalThis
-
-// Polyfill WebSocket untuk Node.js (jika Node < 21 atau environment tidak punya native WebSocket)
-// Uncomment baris di bawah HANYA jika kamu masih Node 18 dan muncul error "WebSocket not defined"
-// import { WebSocket } from 'ws';
-// if (!globalThis.WebSocket) {
-//   (globalThis as any).WebSocket = WebSocket;
-// }
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_ANON_KEY!
-  // FIX: Hapus opsi realtime.transport karena type-nya tidak kompatibel dengan ws package
-  // Supabase JS v2 terbaru sudah handle WebSocket sendiri di Node.js
-);
-
-const BUCKET_NAME = 'galeri';
+const BUCKET_NAME = 'report-images';
 
 export const uploadImage = async (req: Request, res: Response) => {
   try {
