@@ -149,20 +149,27 @@ export const getDetailRute = async (req: Request, res: Response): Promise<any> =
 // ============================================================
 export const buatRute = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { truckId, dayOfWeek, name, isActive, locationId } = req.body;
+    // 🔥 DIGANTI: terima `days` (array, dari frontend baru).
+    // Tetap kompatibel kalau ada request lama yang masih kirim `dayOfWeek` tunggal.
+    const { truckId, days, dayOfWeek, name, isActive, locationId } = req.body;
 
-    if (!truckId || !dayOfWeek || !name || !locationId) {
+    const daftarHari: string[] = Array.isArray(days)
+      ? days
+      : (dayOfWeek ? [dayOfWeek] : []);
+
+    if (!truckId || daftarHari.length === 0 || !locationId) {
       return res.status(400).json({
         success: false,
-        message: 'truckId, dayOfWeek, name, dan locationId wajib diisi',
+        message: 'truckId, minimal satu hari (days), dan locationId wajib diisi',
       });
     }
 
-    const hariUpper = (dayOfWeek as string).toUpperCase();
-    if (!HARI_VALID.includes(hariUpper)) {
+    const hariUpperList = daftarHari.map((h: string) => (h as string).toUpperCase());
+    const hariTidakValid = hariUpperList.filter((h) => !HARI_VALID.includes(h));
+    if (hariTidakValid.length > 0) {
       return res.status(400).json({
         success: false,
-        message: `dayOfWeek tidak valid. Pilihan: ${HARI_VALID.join(', ')}`,
+        message: `Hari tidak valid: ${hariTidakValid.join(', ')}. Pilihan: ${HARI_VALID.join(', ')}`,
       });
     }
 
@@ -176,41 +183,57 @@ export const buatRute = async (req: Request, res: Response): Promise<any> => {
       return res.status(404).json({ success: false, message: 'Lokasi tidak ditemukan' });
     }
 
-    const existing = await prisma.routeTemplate.findFirst({
-      where: { truckId: BigInt(truckId), dayOfWeek: hariUpper },
+    // Cek dulu hari mana saja yang sudah punya rute, biar pesan errornya jelas per hari
+    const existingRoutes = await prisma.routeTemplate.findMany({
+      where: { truckId: BigInt(truckId), dayOfWeek: { in: hariUpperList } },
+      select: { dayOfWeek: true },
     });
-    if (existing) {
+    const hariSudahAda = existingRoutes.map((r) => r.dayOfWeek);
+    const hariBaru = hariUpperList.filter((h) => !hariSudahAda.includes(h));
+
+    if (hariBaru.length === 0) {
       return res.status(400).json({
         success: false,
-        message: `Rute untuk truk ${truk.plateNumber} hari ${hariUpper} sudah ada`,
+        message: `Rute untuk truk ${truk.plateNumber} sudah ada di semua hari yang dipilih (${hariSudahAda.join(', ')})`,
       });
     }
 
-    const rute = await prisma.routeTemplate.create({
-      data: {
-        truckId:    BigInt(truckId),
-        locationId: BigInt(locationId),
-        dayOfWeek:  hariUpper,
-        name,
-        isActive:   isActive !== undefined ? Boolean(isActive) : true,
-      },
-      include: {
-        truck:    { select: { id: true, plateNumber: true } },
-        location: { select: { id: true, name: true } },
-        waypoints: true,
-      },
-    });
+    // 🔥 BARU: name opsional — auto-generate per hari kalau kosong
+    const namaDasar = (name && String(name).trim()) || `Rute ${truk.plateNumber}`;
+
+    const created = await prisma.$transaction(
+      hariBaru.map((hari) =>
+        prisma.routeTemplate.create({
+          data: {
+            truckId:    BigInt(truckId),
+            locationId: BigInt(locationId),
+            dayOfWeek:  hari,
+            name:       `${namaDasar} - ${hari}`,
+            isActive:   isActive !== undefined ? Boolean(isActive) : true,
+          },
+          include: {
+            truck:    { select: { id: true, plateNumber: true } },
+            location: { select: { id: true, name: true } },
+            waypoints: true,
+          },
+        })
+      )
+    );
+
+    const pesanTambahan = hariSudahAda.length > 0
+      ? ` (${hariSudahAda.join(', ')} dilewati karena sudah ada rute)`
+      : '';
 
     return res.status(201).json({
       success: true,
-      message: `Rute ${name} berhasil dibuat`,
-      data: {
+      message: `${created.length} jadwal rute berhasil dibuat${pesanTambahan}`,
+      data: created.map((rute) => ({
         ...rute,
         id:         rute.id.toString(),
         truckId:    rute.truckId.toString(),
         locationId: rute.locationId.toString(),
         truck:      { ...rute.truck, id: rute.truck.id.toString() },
-      },
+      })),
     });
   } catch (error: any) {
     if (error.code === 'P2002') {
