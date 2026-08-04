@@ -273,7 +273,7 @@ try {
         phoneNumber: phoneNumber,
         alamat: pelanggan.alamat,
         jenisUsaha: pelanggan.jenisUsaha,
-        locationId: pelanggan.locationId.toString(),
+        locationId: pelanggan.locationId?.toString(),
       },
     });
 
