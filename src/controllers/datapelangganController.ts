@@ -99,26 +99,24 @@ export const createPelanggan = async (req: any, res: any) => {
     if (!nama?.trim()) {
       return res.status(400).json({ success: false, message: "Nama pelanggan wajib diisi" });
     }
-    if (!userId) {
-      return res.status(400).json({ success: false, message: "User wajib diisi" });
-    }
     if (!locationId) {
       return res.status(400).json({ success: false, message: "Lokasi wajib diisi" });
     }
+    // ✅ userId TIDAK wajib lagi — hanya diisi kalau pelanggan punya akun (hasil registrasi app)
 
-const item = await prisma.pelanggan.create({
-  data: {
-    nama:       nama.trim(),
-    alamat:     alamat?.trim()     ?? "",
-    jenisUsaha: jenisUsaha?.trim() ?? "Rumah Tangga",
-    userId:     BigInt(userId),    
-    locationId: BigInt(locationId),  
-  } as any,
-  include: {
-    user:     { select: { id: true, fullName: true } },
-    location: { select: { id: true, name: true, address: true } },
-  },
-});
+    const item = await prisma.pelanggan.create({
+      data: {
+        nama:       nama.trim(),
+        alamat:     alamat?.trim()     ?? "",
+        jenisUsaha: jenisUsaha?.trim() ?? "Rumah Tangga",
+        locationId: BigInt(locationId),
+        ...(userId ? { userId: BigInt(userId) } : {}), // ✅ opsional
+      } as any,
+      include: {
+        user:     { select: { id: true, fullName: true } },
+        location: { select: { id: true, name: true, address: true } },
+      },
+    });
 
     res.json({ success: true, data: sanitize(item) });
   } catch (err: any) {
@@ -131,50 +129,70 @@ const item = await prisma.pelanggan.create({
 
 export const bulkCreatePelanggan = async (req: any, res: any) => {
   try {
-    const { pelanggan, userId, locationId } = req.body;
+    const { pelanggan, locationId } = req.body;
 
     if (!Array.isArray(pelanggan) || pelanggan.length === 0) {
       return res.status(400).json({ success: false, message: "Data tidak valid atau kosong" });
     }
-    if (pelanggan.length > 500) {
-      return res.status(400).json({ success: false, message: "Maksimal 500 baris per import" });
-    }
-    if (!userId) {
-      return res.status(400).json({ success: false, message: "User wajib diisi" });
-    }
-    if (!locationId) {
-      return res.status(400).json({ success: false, message: "Lokasi wajib diisi" });
+    // ✅ Naikkan batas karena sekarang pakai bulk insert (jauh lebih cepat)
+    if (pelanggan.length > 5000) {
+      return res.status(400).json({ success: false, message: "Maksimal 5000 baris per import" });
     }
 
     const results: { nama: string; status: string; message: string }[] = [];
     let successCount = 0;
     let errorCount   = 0;
 
-    for (const row of pelanggan) {
-      const { nama, alamat, jenisUsaha } = row;
+    // 1️⃣ Pisahkan dulu baris yang nama-nya kosong
+    const validRows = pelanggan.filter((row: any) => {
+      if (!row.nama?.trim()) {
+        results.push({ nama: row.nama || "kosong", status: "error", message: "Nama wajib diisi" });
+        errorCount++;
+        return false;
+      }
+      return true;
+    });
 
-      if (!nama?.trim()) {
-        results.push({ nama: nama || "kosong", status: "error", message: "Nama wajib diisi" });
+    // 2️⃣ Ambil SEMUA data existing sekali saja (bukan per baris) untuk cek duplikat
+    const existing = await prisma.pelanggan.findMany({
+      where: locationId ? { locationId: BigInt(locationId) } : {},
+      select: { nama: true, alamat: true },
+    });
+    const existingKeys = new Set(
+      existing.map((p) => `${p.nama.trim()}|||${(p.alamat ?? "").trim()}`),
+    );
+
+    // 3️⃣ Pisahkan yang duplikat vs yang siap di-insert, dan buang duplikat DALAM file itu sendiri juga
+    const seenInFile = new Set<string>();
+    const toInsert: any[] = [];
+
+    for (const row of validRows) {
+      const nama = row.nama.trim();
+      const alamat = row.alamat?.trim() ?? "";
+      const key = `${nama}|||${alamat}`;
+
+      if (existingKeys.has(key) || seenInFile.has(key)) {
+        results.push({ nama, status: "error", message: "Data sudah ada (duplikat)" });
         errorCount++;
         continue;
       }
 
-      try {
-        await prisma.pelanggan.create({
-          data: {
-            nama:       nama.trim(),
-            alamat:     alamat?.trim()     ?? "",
-            jenisUsaha: jenisUsaha?.trim() ?? "Rumah Tangga",
-            userId:     BigInt(userId),
-            locationId: BigInt(locationId),
-          },
-        });
-        results.push({ nama: nama.trim(), status: "success", message: "Berhasil didaftarkan" });
+      seenInFile.add(key);
+      toInsert.push({
+        nama,
+        alamat,
+        jenisUsaha: row.jenisUsaha?.trim() ?? "Rumah Tangga",
+        ...(locationId ? { locationId: BigInt(locationId) } : {}),
+      });
+    }
+
+    // 4️⃣ Insert semua sekaligus dalam SATU query
+    if (toInsert.length > 0) {
+      await prisma.pelanggan.createMany({ data: toInsert });
+      toInsert.forEach((row) => {
+        results.push({ nama: row.nama, status: "success", message: "Berhasil didaftarkan" });
         successCount++;
-      } catch (err: any) {
-        results.push({ nama: nama.trim(), status: "error", message: err.message || "Gagal" });
-        errorCount++;
-      }
+      });
     }
 
     res.json({
@@ -184,6 +202,7 @@ export const bulkCreatePelanggan = async (req: any, res: any) => {
       results,
     });
   } catch (err: any) {
+    console.error("BULK CREATE ERROR:", err);
     res.status(500).json({ success: false, message: "Gagal import data", error: err.message });
   }
 };

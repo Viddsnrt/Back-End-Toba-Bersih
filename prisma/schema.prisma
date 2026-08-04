@@ -40,29 +40,28 @@ model Pelanggan {
   jenisUsaha String
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
-  locationId BigInt
-  userId     BigInt   @unique
-  location   Location @relation(fields: [locationId], references: [id])
-  user       User     @relation(fields: [userId], references: [id])
+  locationId BigInt?
+  userId     BigInt?  @unique
+  location   Location? @relation(fields: [locationId], references: [id])
+  user       User?    @relation(fields: [userId], references: [id])
 
   @@map("pelanggan")
 }
 
 model Location {
-  id        BigInt          @id @default(autoincrement())
-  name      String
-  isActive  Boolean         @default(true) @map("is_active")
-  code      String?         @unique
-  latitude  Decimal         @db.Decimal(10, 8)
-  longitude Decimal         @db.Decimal(11, 8)
-  address   String?
-  createdAt DateTime        @default(now()) @map("created_at")
-  updatedAt DateTime        @default(now()) @map("updated_at")
-  radius    Int?
+  id              BigInt          @id @default(autoincrement())
+  name            String
+  isActive        Boolean         @default(true) @map("is_active")
+  code            String?         @unique
+  latitude        Decimal         @db.Decimal(10, 8)
+  longitude       Decimal         @db.Decimal(11, 8)
+  address         String?
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @default(now()) @map("updated_at")
+  radius          Int?
   boundaryGeoJson Json?
-  pelanggan Pelanggan[]
-  routes    RouteTemplate[]
-
+  pelanggan       Pelanggan[]
+  routes          RouteTemplate[]
 
   @@map("locations")
 }
