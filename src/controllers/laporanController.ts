@@ -78,49 +78,76 @@ export const createLaporan = async (req: Request, res: Response): Promise<any> =
       }
     }
 
-    // ✅ BARU: Validasi Wilayah (Geofencing)
-    // Laporan hanya boleh dikirim jika lokasi pelapor berada di dalam radius
-    // salah satu wilayah yang berstatus AKTIF.
+    // ============================================================
+    // 🔧 FIX ROOT CAUSE: Validasi Wilayah (Geofencing) — FAIL-CLOSED
+    //
+    // SEBELUM (BUG):
+    //   if (hasValidCoords) { ...cek wilayah... }
+    //   -> Kalau koordinat 0,0 / invalid (GPS gagal), blok geofencing
+    //      DILEWATI TOTAL, laporan lolos tanpa dicek sama sekali.
+    //      Ini yang membuat User B (GPS gagal, wilayah Jakarta belum ada)
+    //      tetap berhasil kirim laporan, padahal User A (GPS berhasil,
+    //      koordinat Jakarta valid) ditolak dengan benar.
+    //
+    // SESUDAH (FIX):
+    //   Keputusan "boleh dilewatkan tanpa cek" sekarang murni berdasarkan
+    //   ADA/TIDAKNYA wilayah aktif yang dikonfigurasi admin —
+    //   BUKAN berdasarkan valid/tidaknya koordinat yang dikirim user.
+    //
+    //   - activeWilayah.length === 0 → sistem belum setup wilayah sama
+    //     sekali → laporan dilewatkan (disengaja, untuk fase awal setup).
+    //   - activeWilayah.length > 0  → wilayah SUDAH dikonfigurasi →
+    //     koordinat WAJIB valid. Kalau tidak valid (GPS gagal/ditolak/
+    //     payload dimanipulasi), laporan DITOLAK. Tidak ada jalan lolos.
+    // ============================================================
     const pLat = parseFloat(latitude);
     const pLon = parseFloat(longitude);
     const hasValidCoords = !isNaN(pLat) && !isNaN(pLon) && !(pLat === 0 && pLon === 0);
 
-    if (hasValidCoords) {
-      const activeWilayah = await prisma.location.findMany({
-        where: { isActive: true },
-      });
+    const activeWilayah = await prisma.location.findMany({
+      where: { isActive: true },
+    });
 
-      // Kalau belum ada wilayah aktif yang dikonfigurasi sama sekali,
-      // jangan blokir laporan (anggap admin belum setup wilayah).
-      if (activeWilayah.length > 0) {
-        let isCovered = false;
-        let nearest: { name: string; distance: number } | null = null;
+    if (activeWilayah.length > 0) {
+      // Wilayah layanan sudah dikonfigurasi → lokasi WAJIB valid.
+      // Koordinat hilang/invalid bukan alasan untuk meloloskan laporan.
+      if (!hasValidCoords) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Lokasi GPS tidak terdeteksi atau tidak valid. Aktifkan izin lokasi pada perangkat Anda dan pastikan koordinat berhasil terdeteksi sebelum mengirim laporan.',
+        });
+      }
 
-        for (const w of activeWilayah) {
-          const distance = calculateDistanceKm(pLat, pLon, Number(w.latitude), Number(w.longitude));
-          const radiusKm = (w.radius || 5000) / 1000;
+      let isCovered = false;
+      let nearest: { name: string; distance: number } | null = null;
 
-          if (distance <= radiusKm) {
-            isCovered = true;
-            break;
-          }
+      for (const w of activeWilayah) {
+        const distance = calculateDistanceKm(pLat, pLon, Number(w.latitude), Number(w.longitude));
+        const radiusKm = (w.radius || 5000) / 1000;
 
-          if (!nearest || distance < nearest.distance) {
-            nearest = { name: w.name, distance };
-          }
+        if (distance <= radiusKm) {
+          isCovered = true;
+          break;
         }
 
-        if (!isCovered) {
-          const distanceText = nearest ? nearest.distance.toFixed(2) : '0';
-          const namaWilayah = nearest ? nearest.name : 'wilayah aktif';
-
-          return res.status(400).json({
-            success: false,
-            message: `Laporan tidak dapat dikirim karena lokasi Anda berada ${distanceText} km dari kecamatan aktif terdekat (${namaWilayah}). Silakan kirim laporan saat berada di dalam radius wilayah yang dilayani.`,
-          });
+        if (!nearest || distance < nearest.distance) {
+          nearest = { name: w.name, distance };
         }
       }
+
+      if (!isCovered) {
+        const distanceText = nearest ? nearest.distance.toFixed(2) : '0';
+        const namaWilayah = nearest ? nearest.name : 'wilayah aktif';
+
+        return res.status(400).json({
+          success: false,
+          message: `Laporan tidak dapat dikirim karena lokasi Anda berada ${distanceText} km dari kecamatan aktif terdekat (${namaWilayah}). Silakan kirim laporan saat berada di dalam radius wilayah yang dilayani.`,
+        });
+      }
     }
+    // Kalau activeWilayah.length === 0, laporan dilewatkan tanpa geofencing
+    // (belum ada wilayah yang dikonfigurasi admin sama sekali).
 
     // Cek user (opsional)
     let finalUserId: bigint | null = null;
@@ -467,7 +494,7 @@ export const tolakLaporan = async (req: Request, res: Response): Promise<any> =>
     const namaPelapor: string = laporan.pelapor || laporan.user?.fullName || 'Pelapor';
 
     if (emailTujuan) {
-      try {
+      try { 
         const judulEmail = '❌ Laporan Anda Ditolak - DLH Toba';
         const isiPesan = `
 Halo ${namaPelapor},
